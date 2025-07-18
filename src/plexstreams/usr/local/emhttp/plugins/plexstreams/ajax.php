@@ -7,7 +7,9 @@
 
     $mergedStreams = [];
     if (!empty($cfg['TOKEN'])) {
-        if ($cfg['HOST'] !== '' || $cfg['CUSTOM_SERVERS'] !== '') {
+        $hostCfg   = $cfg['HOST']           ?? '';
+        $customCfg = $cfg['CUSTOM_SERVERS'] ?? '';
+        if ($hostCfg !== '' || $customCfg !== '') {
             $docroot = $docroot ?? $_SERVER['DOCUMENT_ROOT'] ?: '/usr/local/emhttp';
             require_once "$docroot/webGui/include/Wrappers.php";
             extract(parse_plugin_cfg('dynamix',true));

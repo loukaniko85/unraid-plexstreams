@@ -1,0 +1,11 @@
+<CommunityApplications>
+  <Profile>
+Plex Streams — Unraid plugin that adds a dashboard widget and sidebar entry showing currently active Plex Media Server streams: title, user, server, location (with country flag), playback position, transcode type (HW/CPU), bandwidth and optional poster art. One-click expand for full per-stream details; optional one-click terminate.
+
+Fork of [dorgan/Unraid-plexstreams](https://github.com/dorgan/Unraid-plexstreams) with bug fixes, server-side caching, a modernized dashboard widget, opt-in stream termination, and a GitHub Actions pipeline that auto-builds the `.txz` package.
+
+**Support:** [GitHub Issues](https://github.com/loukaniko85/unraid-plexstreams/issues)
+  </Profile>
+  <Icon>https://raw.githubusercontent.com/loukaniko85/unraid-plexstreams/master/icon.svg</Icon>
+  <WebPage>https://github.com/loukaniko85/unraid-plexstreams</WebPage>
+</CommunityApplications>

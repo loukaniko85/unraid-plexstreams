@@ -1,0 +1,102 @@
+name: Build .txz package
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'src/plexstreams/**'
+      - 'plexstreams.plg'
+      - '.github/workflows/build-txz.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # Skip the workflow's own commits to avoid an infinite loop.
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build .txz and patch .plg
+        id: build
+        run: |
+          set -euo pipefail
+
+          VERSION=$(grep -oP 'ENTITY\s+version\s+"\K[^"]+' plexstreams.plg)
+          PKG="plexstreams-${VERSION}-x86_64-1"
+          OUT="archive/${PKG}.txz"
+
+          mkdir -p archive _stage
+          rm -rf _stage/*
+
+          # Copy plugin tree, dropping the build script and editor cruft.
+          cp -a src/plexstreams/. _stage/
+          find _stage -name 'pkg_build.sh' -delete
+          find _stage -name '.DS_Store' -delete
+
+          # Minimal Slackware package metadata (install/slack-desc).
+          mkdir -p _stage/install
+          cat > _stage/install/slack-desc <<'EOF'
+          # HOW TO EDIT THIS FILE:
+          # The "handy ruler" below makes it easier to edit a package description.
+                 |-----handy-ruler------------------------------------------------------|
+          plexstreams: plexstreams (Unraid plugin: Plex Streams dashboard widget)
+          plexstreams:
+          plexstreams: Adds a navigation entry and dashboard widget that show
+          plexstreams: currently active streams from your Plex Media Server(s).
+          plexstreams:
+          plexstreams: Fork: https://github.com/loukaniko85/unraid-plexstreams
+          plexstreams:
+          plexstreams:
+          plexstreams:
+          plexstreams:
+          plexstreams:
+          EOF
+
+          # Normalise file ownership/perms so the package is reproducible.
+          find _stage -type d -exec chmod 755 {} +
+          find _stage -type f -exec chmod 644 {} +
+          # Keep PHP/HTML readable; nothing needs to be executable.
+
+          # Build the .txz (Slackware-compatible: xz-compressed tar relative to /).
+          ( cd _stage && tar --owner=0 --group=0 --numeric-owner -cJf "../${OUT}" . )
+
+          MD5=$(md5sum "${OUT}" | awk '{print $1}')
+          echo "${MD5}  ${PKG}.txz" > "archive/${PKG}.md5"
+
+          # Patch the .plg with the new MD5.
+          sed -i -E "s/(ENTITY[[:space:]]+md5[[:space:]]+\")[^\"]+/\1${MD5}/" plexstreams.plg
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "md5=${MD5}"         >> "$GITHUB_OUTPUT"
+          echo "pkg_name=${PKG}"    >> "$GITHUB_OUTPUT"
+          echo "pkg_path=${OUT}"    >> "$GITHUB_OUTPUT"
+
+          rm -rf _stage
+
+      - name: Commit packaged artifacts back to repo
+        run: |
+          if git diff --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add archive/ plexstreams.plg
+          git commit -m "ci: build ${{ steps.build.outputs.pkg_name }} (md5 ${{ steps.build.outputs.md5 }}) [skip ci]"
+          git push
+
+      - name: Upload .txz as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.pkg_name }}
+          path: |
+            ${{ steps.build.outputs.pkg_path }}
+            archive/${{ steps.build.outputs.pkg_name }}.md5
+            plexstreams.plg

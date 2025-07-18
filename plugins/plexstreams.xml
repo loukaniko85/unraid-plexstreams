@@ -1,0 +1,24 @@
+<Plugin>
+  <Name>Plex Streams</Name>
+
+  <Overview>
+Adds a dashboard widget and sidebar entry showing currently active Plex Media Server streams: title, user, server, LAN/WAN location with country flag and geoip, playback position, transcode type (HW/CPU) or direct-play indicator, bandwidth, resolution and optional poster art. Click a stream to expand full per-stream details (player, codec, container, decision). Optional one-click terminate (opt-in via settings).
+  </Overview>
+
+  <!-- Must exactly match the pluginURL ENTITY in plexstreams.plg -->
+  <PluginURL>https://raw.githubusercontent.com/loukaniko85/unraid-plexstreams/master/plexstreams.plg</PluginURL>
+
+  <PluginAuthor>loukaniko</PluginAuthor>
+
+  <Project>https://github.com/loukaniko85/unraid-plexstreams</Project>
+
+  <ReadMe>https://raw.githubusercontent.com/loukaniko85/unraid-plexstreams/master/README.md</ReadMe>
+
+  <Category>Tools:</Category>
+
+  <MinVer>6.10</MinVer>
+
+  <Icon>https://raw.githubusercontent.com/loukaniko85/unraid-plexstreams/master/icon.svg</Icon>
+
+  <License>MIT</License>
+</Plugin>

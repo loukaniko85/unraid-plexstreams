@@ -2,30 +2,51 @@
 
 <!DOCTYPE PLUGIN [
   <!ENTITY name       "plexstreams">
-  <!ENTITY author     "Donald Organ">
-  <!ENTITY version    "2023.11.27">
+  <!ENTITY author     "loukaniko">
+  <!ENTITY version    "2025.07.18">
   <!ENTITY launch     "Settings/PlexStreams">
   <!ENTITY branch     "master">
-  <!ENTITY gitURL     "https://raw.githubusercontent.com/dorgan/Unraid-&name;/&branch;">
-  <!ENTITY vnstatURL  "&gitURL;/deps/">
+  <!ENTITY gitURL     "https://raw.githubusercontent.com/loukaniko85/unraid-plexstreams/&branch;">
   <!ENTITY pluginURL  "&gitURL;/&name;.plg">
   <!ENTITY emhttp     "/usr/local/emhttp/plugins/&name;">
   <!ENTITY plgPATH    "/boot/config/plugins/&name;">
   <!ENTITY plgNAME    "&name;-&version;-x86_64-1">
-  <!ENTITY md5        "cfae9b112f22dd0d9354bf0beb258b5d">
+  <!ENTITY md5        "eebc394004d52c353d6bc82d218356f7">
 ]>
 
 <PLUGIN  name="&name;"
          author="&author;"
          version="&version;"
          pluginURL="&pluginURL;"
-         support="https://forums.unraid.net/topic/92459-plugin-plex-streams/"
+         support="https://github.com/loukaniko85/unraid-plexstreams/issues"
          launch="&launch;"
          IconFA="film"
          icon="film">
 
     <CHANGES>
     ##&name;
+###2025.07.18 (loukaniko fork) — final pre-6.12 release
+- Redesigned the dashboard widget: poster thumbnails, inline progress,
+  decision badge (TRANSCODING HW/CPU, DIRECT PLAY, DIRECT STREAM),
+  resolution + bandwidth chips, LAN/WAN chip with country flag and city
+- Header shows total bandwidth alongside the stream count
+- Per-row session uptime ("started 18m ago"); absolute time in tooltip
+- Click any stream for full session details (player, device, codec,
+  container, full geoip)
+- Optional Terminate button to kick a session — off by default; turn on
+  under Settings → Plex Streams → Allow Stream Termination
+- Caches the Plex device list (5min) and geoip results (24h) so the
+  widget doesn't hammer plex.tv on every poll
+- Settings: refresh interval, poster toggle, allow termination toggle
+- Removed the Tools menu entry (redundant with the sidebar and widget)
+- Fix: video length was being nulled by a typo (`$lengthMinuites`)
+- Fix: LAN/WAN/geoip labels missing on audio-only streams
+- Fix: PHP warnings on the settings page when fields weren't set
+- Fix: SSRF in the image proxy — host is now validated against your
+  configured Plex servers
+- Repointed installer to this fork; added MIT LICENSE; GitHub Actions
+  builds the .txz on push
+
 ###2023.11.27
 - Correcting bug for settings page
 
@@ -146,7 +167,7 @@
 
 ###2020.06.26b
  - Both the dashboard and the streams page now fully update with new/removed streams without having to reload
- 
+
 ###2020.06.22
  - Updated streams page to update streams via ajax, still need to have it add streams as they come online
 
@@ -167,10 +188,10 @@
 
 ###2020.06.12a
  - Add Geo IP lookup
- 
+
 ###2020.06.12
  - Make server list load via ajax so that it doesnt slow down the initial rendering the pages
- 
+
 ###2020.06.10a
  - Correcting display issue with live streams from Tuner Devices
 
@@ -192,7 +213,7 @@
 
 ###2020.06.07a
  - Make dashboard widget use ajax so that it doesnt slow down the loading of the dashboard
- 
+
 ###2020.06.07
  - Maintain settings for dashboard widget and nav item
 
@@ -252,7 +273,7 @@
 
 ###2020.05.15a
  - Fixing bug for stream type wasnt being displayed
- 
+
 ###2020.05.15
  - More tweaks to UI
 
@@ -261,7 +282,7 @@
 
 ###2020.05.14d
  - Some CSS tweaks and add icon for when tasks menu is on the left
-     
+
 ###2020.05.14c
  - Initial Beta Release
     </CHANGES>
@@ -271,38 +292,37 @@
       <![CDATA[
       HOST=""
       TOKEN=""
+      DISPLAY_WIDGET="1"
+      DISPLAY_NAV="1"
+      FORCE_PLEX_HTTPS="0"
+      CUSTOM_SERVERS=""
+      REFRESH_INTERVAL="5"
+      SHOW_POSTERS="1"
+      ALLOW_TERMINATE="0"
       ]]>
       </INLINE>
     </FILE>
 
 
-    <!-- PRE-INSTALL SCRIPT -->
-    <!--<FILE Run="/bin/bash">
-    <INLINE>
-    # Remove old 'name' packages
-    MD5=$(md5sum &name;.txz 2>/dev/null|grep -Po '^\S+')
-    if [[ $MD5 != "&md5;" ]]; then
-        rm -f &name;*.txz
-    fi
-    </INLINE>
-    </FILE>-->
-
     <!-- Install Package-->
     <FILE Name="&plgPATH;/&plgNAME;.txz" Run="upgradepkg --install-new --reinstall">
-        <URL>&gitURL;/archive/&plgNAME;.txz</URL>
+        <URL>&gitURL;/archive/&plgNAME;.legacy-final.txz</URL>
         <MD5>&md5;</MD5>
     </FILE>
 
     <!-- POST-INSTALL SCRIPT -->
     <FILE Run="/bin/bash">
         <INLINE>
+            # Clear server-list and geo cache after upgrade so changes take effect immediately.
+            rm -rf /tmp/plexstreams_cache 2>/dev/null
+
             WIDGET_OFF_FILE=/usr/local/emhttp/plugins/plexstreams/PlexStreams_dashboard.page.off
             WIDGET_SETTING=`php -r 'exit(parse_ini_file("/boot/config/plugins/plexstreams/plexstreams.cfg", false)["DISPLAY_WIDGET"]);'`
             if [[ -f "$WIDGET_OFF_FILE" || "$WIDGET_SETTING" == "0" ]]; then
                 rm -f /usr/local/emhttp/plugins/plexstreams/PlexStreams_dashboard.page.off
                 mv -f /usr/local/emhttp/plugins/plexstreams/PlexStreams_dashboard.page /usr/local/emhttp/plugins/plexstreams/PlexStreams_dashboard.page.off
             fi
-            
+
             NAV_OFF=/usr/local/emhttp/plugins/plexstreams/Plex_Streams.page.off
             NAV_SETTING=`php -r 'exit(parse_ini_file("/boot/config/plugins/plexstreams/plexstreams.cfg", false)["DISPLAY_NAV"]);'`
             if [[ -f "$NAV_OFF" || "$NAV_SETTING" == "0" ]]; then
@@ -314,6 +334,7 @@
             echo "-----------------------------------------------------------"
             echo " &name; has been installed."
             echo " Version: &version;"
+            echo " Fork: https://github.com/loukaniko85/unraid-plexstreams"
             echo "-----------------------------------------------------------"
             echo ""
         </INLINE>
@@ -330,6 +351,7 @@
 	        rm -rf &emhttp;
             rm -rf &plgPATH;/*.txz \
 		        &plgPATH;/*.md5
+            rm -rf /tmp/plexstreams_cache
 
             echo ""
             echo "-----------------------------------------------------------"

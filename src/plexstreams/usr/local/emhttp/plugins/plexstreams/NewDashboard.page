@@ -3,120 +3,257 @@ Icon="film"
 Tag="film"
 Cond="parse_ini_file('/boot/config/plugins/plexstreams/plexstreams.cfg')['DISPLAY_WIDGET'] == '1' && version_compare(parse_ini_file('/etc/unraid-version')['version'],'6.12.0-beta5', '>')"
 ---
-<style>
-p.plexstream-title {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    width: 200px;
-    padding: 0 0 0 0;
-    margin: 0 0 10px 0;
-}
-
-p.plexstream-user {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    width: 104px;
-    padding: 0 0 0 0;
-    margin: 0 0 10px 0;
-}
-
-p.plexstream-time {
-    padding: 0 0 0 0;
-    margin: 0 0 10px 0;
-    font-size:10px;
-    width: 125px;
-    text-align: right;
-}
-</style>
-<?PHP
-    /*
-        Create a .page file based on this example file and store the file in your plugin directory
-        Make sure this file has a unique name not used by the GUI or other plugins
-
-        This is an example configuration which is used to add custom tiles to the dashboard
-        Placement of one or more custom tiles is done under column1, column2 or column3
-        A column can have as many new custom tiles as needed, each custom tile is a <tbody> element
-        Each tile must have these two properties set:
-
-        "_(description)_"    - this is the (translated) description shown in the Content Manager window
-        "_(Tile tile)_"      - this is the (translated) title of the tile shown in bold on the screen
-
-        The content of the tile can be any text as required by your plugin, this content is placed inside the <td> element
-        A number of predefined spans are available to make fields of certain widths and maybe used to follow the GUI alignment
-        These are:
-        <span class="w18">
-        <span class="w26">
-        <span class="w36">
-        <span class="w44">
-        <span class="w72">
-    */
-    $plugin = "plexstreams";
+<?php
+    $plugin       = "plexstreams";
     $translations = file_exists("$docroot/webGui/include/Translations.php");
-    $dashboard_widget_pos = 1;
-    $dashboard_widget_colspan = 3;
-    $streamCount = 0;
+
+    $cfgPath  = '/boot/config/plugins/plexstreams/plexstreams.cfg';
+    $psCfg    = file_exists($cfgPath) ? parse_ini_file($cfgPath) : [];
+    $refresh  = max(2, (int)($psCfg['REFRESH_INTERVAL'] ?? 5));
+    $posters  = ($psCfg['SHOW_POSTERS']     ?? '1') === '1' ? 1 : 0;
+    $allowKill = ($psCfg['ALLOW_TERMINATE'] ?? '0') === '1' ? 1 : 0;
 ?>
 
 <style type="text/css">
-        .dash_plexstreams_toggle{display:none}
-        .dash_plexstreams_toggle tbody td {
-            padding-top: 0px;
-            padding-bottom: 0px;
-        }
-        p.plexstream-title {
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            width: 200px;
-            padding: 0 0 0 0;
-            margin: 0 0 10px 0;
-        }
+    .ps-widget {
+        font-size: 12px;
+    }
+    .ps-widget .ps-header-actions {
+        float: right;
+    }
+    .ps-widget .ps-header-actions a { margin-left: 6px; }
+    .ps-widget .ps-count-line {
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+    }
+    .ps-widget .ps-host-counts {
+        margin-top: 2px;
+        font-size: 11px;
+        color: #888;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .ps-widget .ps-host-counts strong { color: inherit; }
+    .ps-widget .ps-bw-total {
+        color: inherit;
+        font-variant-numeric: tabular-nums;
+    }
+    .ps-flag {
+        font-size: 11px;
+        vertical-align: -1px;
+        margin-right: 2px;
+    }
+    .ps-started {
+        font-size: 10px;
+        color: #888;
+        white-space: nowrap;
+    }
+    .ps-started i { margin-right: 2px; }
 
-        p.plexstream-user {
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            width: 104px;
-            padding: 0 0 0 0;
-            margin: 0 0 10px 0;
-        }
+    .ps-stream {
+        padding: 6px 0;
+        border-bottom: 1px solid rgba(127,127,127,0.15);
+        position: relative;
+    }
+    .ps-stream:last-child { border-bottom: none; }
+    .ps-stream .ps-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+    }
+    .ps-stream .ps-row:hover { background: rgba(127,127,127,0.06); }
+    .ps-stream.ps-open .ps-row { background: rgba(229,160,13,0.07); }
 
-        p.plexstream-time {
-            padding: 0 0 0 0;
-            margin: 0 0 10px 0;
-            font-size:10px;
-            width: 125px;
-            text-align: right;
-        }
+    .ps-stream .ps-thumb {
+        flex: 0 0 36px;
+        height: 54px;
+        background-size: cover;
+        background-position: center;
+        background-color: rgba(127,127,127,0.15);
+        border-radius: 3px;
+    }
+    .ps-stream .ps-body {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+    }
+    .ps-stream .ps-title {
+        font-weight: 600;
+        line-height: 1.3;
+        word-break: break-word;
+        overflow-wrap: anywhere;
+    }
+    .ps-stream .ps-title .ps-badges { white-space: nowrap; }
+    .ps-stream .ps-meta {
+        display: flex;
+        justify-content: space-between;
+        font-size: 11px;
+        color: #888;
+        margin-top: 2px;
+    }
+    .ps-stream .ps-meta .ps-user {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 50%;
+    }
+    .ps-stream .ps-meta .ps-time {
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+    }
+    .ps-stream .ps-progress-bg {
+        height: 2px;
+        background: rgba(127,127,127,0.18);
+        border-radius: 1px;
+        margin-top: 4px;
+        overflow: hidden;
+    }
+    .ps-stream .ps-progress {
+        height: 100%;
+        background: rgba(127,127,127,0.55);
+        width: 0;
+        transition: width 1s linear;
+    }
+    .ps-stream .ps-state {
+        flex: 0 0 14px;
+        text-align: center;
+        color: #888;
+    }
+    .ps-stream .ps-state.playing { color: #4caf50; }
+    .ps-stream .ps-state.paused  { color: #c79320; }
+    .ps-badge {
+        display: inline-block;
+        border: 1px solid rgba(127,127,127,0.25);
+        background: rgba(127,127,127,0.10);
+        color: #888;
+        border-radius: 2px;
+        padding: 0 4px;
+        font-size: 9px;
+        font-weight: 600;
+        text-transform: uppercase;
+        margin-left: 4px;
+        vertical-align: 1px;
+        line-height: 14px;
+    }
+    .ps-badge-trans {
+        color: #c79320;
+        border-color: rgba(199,147,32,0.35);
+        background: rgba(199,147,32,0.10);
+    }
+    /* DIRECT PLAY / DIRECT STREAM: neutral muted, slight green tint
+       (subtle "no server cost" cue without breaking the palette). */
+    .ps-badge-direct {
+        color: #4caf50;
+        border-color: rgba(76,175,80,0.30);
+        background: rgba(76,175,80,0.08);
+    }
+
+    .ps-loc {
+        display: inline-block;
+        font-size: 10px;
+        padding: 0 4px;
+        border-radius: 2px;
+        margin: 0 6px;
+        line-height: 14px;
+        border: 1px solid rgba(127,127,127,0.25);
+        background: rgba(127,127,127,0.10);
+        color: #888;
+    }
+    .ps-loc-lan {
+        color: #4caf50;
+        border-color: rgba(76,175,80,0.30);
+    }
+
+    .ps-detail {
+        margin-top: 4px;
+        padding: 8px 10px;
+        background: rgba(127,127,127,0.06);
+        border-radius: 4px;
+        font-size: 11px;
+    }
+    .ps-d-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 4px 24px;
+    }
+    .ps-d-row {
+        display: flex;
+        gap: 8px;
+        min-width: 0;
+        align-items: baseline;
+    }
+    .ps-d-label {
+        color: #888;
+        flex: 0 0 80px;
+        white-space: nowrap;
+    }
+    .ps-d-val {
+        color: inherit;
+        flex: 1 1 auto;
+        min-width: 0;
+        word-break: break-word;
+        overflow-wrap: anywhere;
+    }
+    .ps-d-actions {
+        margin-top: 8px;
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+    .ps-d-hint { color: #888; font-style: italic; font-size: 10px; }
+    .ps-btn {
+        background: rgba(127,127,127,0.15);
+        color: inherit;
+        border: 1px solid rgba(127,127,127,0.25);
+        border-radius: 3px;
+        padding: 3px 8px;
+        font-size: 11px;
+        cursor: pointer;
+    }
+    .ps-btn:hover    { background: rgba(127,127,127,0.25); }
+    .ps-btn-kill     { color: #e53935; border-color: rgba(229,57,53,0.4); }
+    .ps-btn-kill:hover { background: rgba(229,57,53,0.15); }
+
+    .ps-flash {
+        padding: 4px 8px;
+        border-radius: 3px;
+        font-size: 11px;
+        margin-bottom: 6px;
+    }
+    .ps-flash-ok  { background: rgba(76,175,80,0.15);  color: #4caf50; }
+    .ps-flash-err { background: rgba(229,57,53,0.15);  color: #e53935; }
+
+    .ps-empty {
+        text-align: center;
+        font-style: italic;
+        color: #888;
+        padding: 12px 0;
+    }
 </style>
 <?php
 $mytiles[$plugin]['column1'] =
 <<<EOT
-<tbody class="sortable" title="_(Plex Streams)_">
+<tbody class="sortable ps-widget" title="_(Plex Streams)_">
     <tr>
         <td>
             <i style="font-size:32px;vertical-align:top;" class="fa fa-film icon"></i>
-            <div class="section" style="line-height:2rem;">_(Plex Streams)_<br><span id="stream_count_container"><span id="plexstreams_count">0</span> _(Active Stream(s))_</span></div>
-            <a href="/Settings/PlexStreams" title="_(Plex Streams Setup page)_"><i class="fa fa-fw fa-cog control"></i></a>
-            <a href="/Tools/PlexStreamsTools" title="_(View Streams)_"><i class="fa fa-fw fa-film control"></i></a>
-        </td>
-    </tr>
-    <tr>
-        <td>            
-            <span class="w36">_(Name)_</span>
-            <span class="w18" align="center">_(Status)_</span>
-            <span class="w18">_(User)_</span>
-            <span class="w18" align="right">_(Time)_</span>
+            <div class="section" style="line-height:2rem;">
+                <span class="ps-header-actions">
+                    <a href="/Settings/PlexStreams" title="_(Plex Streams Settings)_"><i class="fa fa-fw fa-cog"></i></a>
+                </span>
+                _(Plex Streams)_<br>
+                <span id="stream_count_container" class="ps-count-line"><span id="plexstreams_count">0</span> _(streams)_</span>
+                <div class="ps-host-counts" id="ps_host_counts"></div>
+            </div>
         </td>
     </tr>
     <tr>
         <td>
             <div id="plexstreams_streams">
-                <div id="retrieving_streams">
-                    <p align="center" style="font-style:italic;text-align:center;">_(Retrieving Stream Data...)_</p>
-                </div>
+                <div id="retrieving_streams" class="ps-empty">_(Retrieving Stream Data...)_</div>
             </div>
         </td>
     </tr>
@@ -125,8 +262,11 @@ EOT;
 ?>
 <script src="<?autov('/plugins/plexstreams/js/plex.js')?>"></script>
 <script async>
+    window.PS_REFRESH_MS    = <?= $refresh * 1000 ?>;
+    window.PS_SHOW_POSTERS  = <?= $posters ?>;
+    window.PS_ALLOW_TERMINATE = <?= $allowKill ?>;
     $(function() {
         updateDashboardStreamsNew();
-        setInterval(updateDashboardStreamsNew, 5000);
-    }());
+        setInterval(updateDashboardStreamsNew, window.PS_REFRESH_MS);
+    });
 </script>

@@ -41,7 +41,6 @@ Cond="parse_ini_file('/boot/config/plugins/plexstreams/plexstreams.cfg')['DISPLA
                         <div class="section" style="line-height:2rem;">_(Plex Streams)_<br><span id="stream_count_container"><span id="plexstreams_count">0</span> _(Active Stream(s))_</span><br><br></div>
                         <i class="fa fa-fw chevron mt0" id="dash_plexstreams" onclick="toggleChevron('dash_plexstreams',0)"></i>
                         <a href="/Settings/PlexStreams" title="_(Plex Streams Setup page)_"><i class="fa fa-fw fa-cog chevron mt0"></i></a>
-                        <a href="/Tools/PlexStreamsTools" title="_(View Streams)_"><i class="fa fa-fw fa-film chevron mt0"></i></a>
                 </td>
                 <td></td>
             </tr>

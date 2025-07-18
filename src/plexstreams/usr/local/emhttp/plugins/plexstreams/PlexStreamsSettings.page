@@ -32,6 +32,26 @@ if (!isset($cfg['CUSTOM_SERVERS'])) {
     $cfg['CUSTOM_SERVERS'] = "";
 }
 
+if (!isset($cfg['HOST'])) {
+    $cfg['HOST'] = "";
+}
+
+if (!isset($cfg['TOKEN'])) {
+    $cfg['TOKEN'] = "";
+}
+
+if (!isset($cfg['REFRESH_INTERVAL'])) {
+    $cfg['REFRESH_INTERVAL'] = "5";
+}
+
+if (!isset($cfg['SHOW_POSTERS'])) {
+    $cfg['SHOW_POSTERS'] = "1";
+}
+
+if (!isset($cfg['ALLOW_TERMINATE'])) {
+    $cfg['ALLOW_TERMINATE'] = "0";
+}
+
 $pluginPath = '/usr/local/emhttp/plugins/plexstreams/';
 
 if ($cfg['DISPLAY_NAV'] === '0' && file_exists($pluginPath . 'Plex_Streams.page')) {
@@ -84,6 +104,21 @@ function clearToken() {
     _(Use SSL Connection)_:
     <input type="radio" name="FORCE_PLEX_HTTPS" id="FORCE_PLEX_HTTPS_ON" value="1" onchange="getServers('#hostcontainer','<?php echo($cfg['HOST']) ?>')" <?php echo( $cfg['FORCE_PLEX_HTTPS'] === "1" ? "checked" : ""); ?>/>_(On)_
     <input type="radio" name="FORCE_PLEX_HTTPS" id="FORCE_PLEX_HTTPS_OFF" value="0" onchange="getServers('#hostcontainer','<?php echo($cfg['HOST']) ?>')" <?php echo( $cfg['FORCE_PLEX_HTTPS'] === "0" ? "checked" : ""); ?>/>_(Off)_
+</div>
+<div>
+    _(Show Posters in Widget)_:
+    <input type="radio" name="SHOW_POSTERS" id="SHOW_POSTERS_ON"  value="1" <?php echo( $cfg['SHOW_POSTERS'] === "1" ? "checked" : ""); ?>/>_(On)_
+    <input type="radio" name="SHOW_POSTERS" id="SHOW_POSTERS_OFF" value="0" <?php echo( $cfg['SHOW_POSTERS'] === "0" ? "checked" : ""); ?>/>_(Off)_
+</div>
+<div>
+    _(Refresh Interval (seconds))_:
+    <input type="number" name="REFRESH_INTERVAL" id="REFRESH_INTERVAL" min="2" max="60" value="<?php echo((int)$cfg['REFRESH_INTERVAL'] ?: 5); ?>" />
+</div>
+<div>
+    _(Allow Stream Termination)_:
+    <input type="radio" name="ALLOW_TERMINATE" id="ALLOW_TERMINATE_ON"  value="1" <?php echo( $cfg['ALLOW_TERMINATE'] === "1" ? "checked" : ""); ?>/>_(On)_
+    <input type="radio" name="ALLOW_TERMINATE" id="ALLOW_TERMINATE_OFF" value="0" <?php echo( $cfg['ALLOW_TERMINATE'] === "0" ? "checked" : ""); ?>/>_(Off)_
+    <br><span style="font-size:11px;color:#888;">_(When ON, a "Terminate" button appears in the stream details popout. Plex will stop the session and show the user a message.)_</span>
 </div>
 <input type="submit" value="SAVE"> <input type="button" value="_(Remove Token)_" onclick="clearToken()"/>
 </form>

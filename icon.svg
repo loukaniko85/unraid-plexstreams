@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Plex Streams">
+  <rect width="256" height="256" rx="36" fill="#1a1a1a"/>
+  <rect x="56" y="56" width="144" height="144" rx="14" fill="none" stroke="#888" stroke-width="6"/>
+  <g fill="#888">
+    <rect x="64"  y="76"  width="14" height="14" rx="2"/>
+    <rect x="64"  y="120" width="14" height="14" rx="2"/>
+    <rect x="64"  y="164" width="14" height="14" rx="2"/>
+    <rect x="178" y="76"  width="14" height="14" rx="2"/>
+    <rect x="178" y="120" width="14" height="14" rx="2"/>
+    <rect x="178" y="164" width="14" height="14" rx="2"/>
+  </g>
+  <path d="M118 100 l40 28 l-40 28 z" fill="#e5a00d"/>
+</svg>

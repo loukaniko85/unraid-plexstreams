@@ -2,17 +2,90 @@
     if (isset($GLOBALS['unRaidSettings'])) {
         define('OS_VERSION', 'Unraid ' . $GLOBALS['unRaidSettings']['version']);
     }
-    define('PLUGIN_VERSION', '2023.03.26');
+    define('PLUGIN_VERSION', '2026.05.15');
+    define('PLEXSTREAMS_CACHE_DIR', '/tmp/plexstreams_cache');
 
-    function getGeo($ip) {
-        $url = 'https://plex.tv/api/v2/geoip?ip_address=' . $ip;
-        $resp = getUrl($url);
-        if (isset($resp['@attributes'])) {
-            return $resp['@attributes']['city'] . ', ' . (isset($resp['@attributes']['subdivision']) ? $resp['@attributes']['subdivision'] . ' ' : '' ) . $resp['@attributes']['code'];
+    function ps_cache_get($key, $ttl) {
+        $file = PLEXSTREAMS_CACHE_DIR . '/' . sha1($key);
+        if (!is_file($file)) return null;
+        if ((time() - filemtime($file)) > $ttl) return null;
+        $raw = @file_get_contents($file);
+        if ($raw === false) return null;
+        $val = @unserialize($raw);
+        return $val === false ? null : $val;
+    }
+
+    function ps_cache_set($key, $value) {
+        if (!is_dir(PLEXSTREAMS_CACHE_DIR)) {
+            @mkdir(PLEXSTREAMS_CACHE_DIR, 0755, true);
         }
+        @file_put_contents(PLEXSTREAMS_CACHE_DIR . '/' . sha1($key), serialize($value), LOCK_EX);
+    }
+
+    function countryFlag($cc) {
+        if (!is_string($cc) || !preg_match('/^[A-Za-z]{2}$/', $cc)) return '';
+        $cc = strtoupper($cc);
+        return mb_chr(0x1F1E6 + ord($cc[0]) - 65, 'UTF-8')
+             . mb_chr(0x1F1E6 + ord($cc[1]) - 65, 'UTF-8');
+    }
+
+    // Returns ['display'=>string, 'country'=>cc, 'flag'=>emoji]. Cached 24h.
+    function getGeoData($ip) {
+        $empty = ['display' => '', 'country' => '', 'flag' => ''];
+        if (empty($ip)) return $empty;
+        $cacheKey = 'geo2:' . $ip;
+        $cached = ps_cache_get($cacheKey, 86400);
+        if (is_array($cached)) return $cached;
+
+        $url = 'https://plex.tv/api/v2/geoip?ip_address=' . urlencode($ip);
+        $resp = getUrl($url);
+        $val = $empty;
+        if (isset($resp['@attributes'])) {
+            $a   = $resp['@attributes'];
+            $cc  = $a['code'] ?? '';
+            $val = [
+                'display' => ($a['city'] ?? '') . ', '
+                           . (isset($a['subdivision']) ? $a['subdivision'] . ' ' : '')
+                           . $cc,
+                'country' => $cc,
+                'flag'    => countryFlag($cc),
+            ];
+        }
+        ps_cache_set($cacheKey, $val);
+        return $val;
+    }
+
+    // Back-compat scalar wrapper (still used in a couple of places).
+    function getGeo($ip) {
+        $g = getGeoData($ip);
+        return $g['display'];
+    }
+
+    // First-seen timestamp for a session. Refreshes the cache mtime each call
+    // so an active session never expires, but never overwrites the value.
+    function sessionStartTime($host, $sessionKey) {
+        if (empty($sessionKey)) return null;
+        $key  = 'sess:' . $host . '|' . $sessionKey;
+        $file = PLEXSTREAMS_CACHE_DIR . '/' . sha1($key);
+        $cached = ps_cache_get($key, 86400);
+        if (is_int($cached)) {
+            @touch($file);
+            return $cached;
+        }
+        $now = time();
+        ps_cache_set($key, $now);
+        return $now;
     }
 
     function getServers($cfg) {
+        // Server topology rarely changes; cache for 5 minutes per-token to dramatically
+        // speed up settings page loads and reduce hits on plex.tv.
+        $cacheKey = 'servers:' . ($cfg['TOKEN'] ?? '') . ':' . ($cfg['FORCE_PLEX_HTTPS'] ?? '0');
+        $cached = ps_cache_get($cacheKey, 300);
+        if ($cached !== null && !isset($_REQUEST['nocache'])) {
+            return $cached;
+        }
+
         $url = 'https://plex.tv/devices.xml?X-Plex-Token=' . $cfg['TOKEN'];
         $url2 = 'https://plex.tv/api/resources?X-Plex-Token=' .$cfg['TOKEN'] . ($cfg['FORCE_PLEX_HTTPS'] === '1' ? '&includeHttps=1' : '');
         if (isset($_REQUEST['dbg'])) {
@@ -60,6 +133,7 @@
             return false;
         }
 
+        ps_cache_set($cacheKey, $serverList);
         return $serverList;
     }
 
@@ -298,8 +372,10 @@
                                 '@host' => $streams['@host'],
                                 'alias' => $alias,
                                 'id' => $media['@attributes']['id'],
+                                'sessionKey' => $video['@attributes']['sessionKey'] ?? null,
                                 'type' => 'video',
-                                'player' => $video['Player']['@attributes']['product'],
+                                'player' => $video['Player']['@attributes']['product'] ?? '',
+                                'playerDevice' => $video['Player']['@attributes']['device'] ?? ($video['Player']['@attributes']['platform'] ?? ''),
                                 'title' => $title,
                                 'titleString' => $title,
                                 'key' => $video['@attributes']['key'],
@@ -314,7 +390,7 @@
                                 'lengthInSeconds' => $lengthInSeconds ?? null,
                                 'lengthInMinutes' => $lengthInMinutes ?? null,
                                 'lengthSeconds' => $lengthInSeconds ?? null,
-                                'lengthMinutes' => $lengthMinuites ?? null,
+                                'lengthMinutes' => $lengthMinutes ?? null,
                                 'lengthHours' => $lengthHours ?? null,
                                 'currentPosition' => $currentPosition ?? null,
                                 'currentPositionInSeconds' =>  $currentPositionInSeconds ?? null,
@@ -322,19 +398,34 @@
                                 'currentPositionHours' => $currentPositionHours ?? null,
                                 'currentPositionMinutes' => $currentPositionMinutes ?? null,
                                 'currentPositionSeconds' => $currentPositionSeconds ?? null,
-                                'location' => $video['Session']['@attributes']['location'],
-                                'address' => $video['Player']['@attributes']['address'],
-                                'bandwidth' => round((int)$video['Session']['@attributes']['bandwidth'] / 1000, 1),
+                                'location' => $video['Session']['@attributes']['location'] ?? null,
+                                'address' => $video['Player']['@attributes']['address'] ?? '',
+                                'bandwidth' => round((int)($video['Session']['@attributes']['bandwidth'] ?? 0) / 1000, 1),
+                                'videoResolution' => $media['@attributes']['videoResolution'] ?? null,
+                                'container' => $media['@attributes']['container'] ?? null,
                                 'endSecondsFromNow' => (isset($endSecondsFromNow) ? ceil($endSecondsFromNow) : null),
                                 'endTime' => (isset($endTime) ? $endTime : null),
-                                'streamInfo' => []
+                                'streamInfo' => [],
+                                'transcodeType' => '',
                             ];
 
                             if (isset($alias)) {
                                 $mergedStream['alias'] = $alias;
                             }
-                            $loc = strtoupper($mergedStream['location']);
-                            $mergedStream['locationDisplay'] = $loc . ' (' . $mergedStream['address'] . ($loc !== 'LAN' ? ' - ' .getGeo($mergedStream['address']) : '' ) . ')';
+                            $loc = strtoupper($mergedStream['location'] ?? '');
+                            $geoData = ($loc !== 'LAN' && !empty($mergedStream['address']))
+                                ? getGeoData($mergedStream['address'])
+                                : ['display' => '', 'country' => '', 'flag' => ''];
+                            $mergedStream['locationShort']   = $loc ?: '';
+                            $mergedStream['locationGeo']     = $geoData['display'];
+                            $mergedStream['locationCountry'] = $geoData['country'];
+                            $mergedStream['locationFlag']    = $geoData['flag'];
+                            $mergedStream['locationDisplay'] = $loc . ' (' . $mergedStream['address']
+                                . ($geoData['display'] !== '' ? ' - ' . $geoData['display'] : '')
+                                . ')';
+                            $startTs = sessionStartTime($streams['@host'], $mergedStream['sessionKey'] ?? '');
+                            $mergedStream['sessionStartedAt']  = $startTs;
+                            $mergedStream['sessionDurationSec'] = $startTs ? (time() - $startTs) : null;
                             
                             if ($mergedStream['duration'] !== null) {
                                 $mergedStream['percentPlayed'] = round(($currentPositionInMinutes/ $lengthInMinutes) * 100, 0);
@@ -360,17 +451,31 @@
                                 }
                             }
                             
-                            $mergedStream['streamDecision'] = $media['Part']['@attributes']['decision'];
+                            $mergedStream['streamDecision'] = $media['Part']['@attributes']['decision'] ?? '';
                             if ($mergedStream['streamDecision'] === 'directplay') {
                                 $mergedStream['streamDecision'] = 'Direct Play';
                             }
 
                             if ($mergedStream['streamDecision'] === 'transcode') {
-                                if ($mergedStream['streamInfo']['video']['@attributes']['decision'] === 'transcode') {
-                                    $mergedStream['streamInfo']['video']['@attributes']['decision'] .= $video['TranscodeSession']['@attributes']['transcodeHwRequested'] === '1' ?  ' (HW)' : '' . '<br/>' . $mergedStream['streamInfo']['video']['@attributes']['displayTitle'] . ' -> ' . $media['@attributes']['videoResolution'];
+                                $ts = $video['TranscodeSession']['@attributes'] ?? [];
+                                $isHw = (
+                                    (($ts['transcodeHwRequested']    ?? '0') === '1') ||
+                                    (($ts['transcodeHwFullPipeline'] ?? '0') === '1') ||
+                                    !empty($ts['transcodeHwEncoding']) ||
+                                    !empty($ts['transcodeHwDecoding'])
+                                );
+                                $mergedStream['transcodeType'] = $isHw ? 'HW' : 'CPU';
+
+                                if (isset($mergedStream['streamInfo']['video']['@attributes']['decision']) && $mergedStream['streamInfo']['video']['@attributes']['decision'] === 'transcode') {
+                                    $mergedStream['streamInfo']['video']['@attributes']['decision'] .= $isHw ? ' (HW)' : ' (CPU)';
+                                    if (!empty($mergedStream['streamInfo']['video']['@attributes']['displayTitle']) && !empty($media['@attributes']['videoResolution'])) {
+                                        $mergedStream['streamInfo']['video']['@attributes']['decision'] .= '<br/>' . $mergedStream['streamInfo']['video']['@attributes']['displayTitle'] . ' -> ' . $media['@attributes']['videoResolution'];
+                                    }
                                 }
-                                if ($mergedStream['streamInfo']['audio']['@attributes']['decision'] === 'transcode') {
-                                    $mergedStream['streamInfo']['audio']['@attributes']['decision'] .= ' (' . $video['TranscodeSession']['@attributes']['sourceAudioCodec'] . ' -> ' . $video['TranscodeSession']['@attributes']['audioCodec'] .')';
+                                if (isset($mergedStream['streamInfo']['audio']['@attributes']['decision']) && $mergedStream['streamInfo']['audio']['@attributes']['decision'] === 'transcode') {
+                                    if (!empty($ts['sourceAudioCodec']) && !empty($ts['audioCodec'])) {
+                                        $mergedStream['streamInfo']['audio']['@attributes']['decision'] .= ' (' . $ts['sourceAudioCodec'] . ' -> ' . $ts['audioCodec'] . ')';
+                                    }
                                 }
                             }
 
@@ -426,8 +531,11 @@
                                         '@host' => $streams['@host'],
                                         'alias'=> $alias,
                                         'id' => $media['@attributes']['id'],
+                                        'sessionKey' => $audio['@attributes']['sessionKey'] ?? null,
                                         'type' => 'audio',
-                                        'player' => $audio['Player']['@attributes']['product'],
+                                        'player' => $audio['Player']['@attributes']['product'] ?? '',
+                                        'playerDevice' => $audio['Player']['@attributes']['device'] ?? ($audio['Player']['@attributes']['platform'] ?? ''),
+                                        'transcodeType' => '',
                                         'title' => $title,
                                         'titleString' => $titleString,
                                         'key' => $audio['@attributes']['key'],
@@ -442,7 +550,7 @@
                                         'lengthInSeconds' => $lengthInSeconds,
                                         'lengthInMinutes' => $lengthInMinutes,
                                         'lengthSeconds' => $lengthInSeconds,
-                                        'lengthMinutes' => $lengthMinuites,
+                                        'lengthMinutes' => $lengthMinutes,
                                         'lengthHours' => $lengthHours,
                                         'currentPosition' => $currentPosition,
                                         'currentPositionInSeconds' =>  $currentPositionInSeconds,
@@ -465,7 +573,20 @@
                                         }
                                     }
 
-                                    $mergedStream['locationDisplay'] = $loc . ' (' . $mergedStream['address'] . ($loc !== 'LAN' ? ' - ' .getGeo($mergedStream['address']) : '' ) . ')';
+                                    $loc = strtoupper($mergedStream['location'] ?? '');
+                                    $geoData = ($loc !== 'LAN' && !empty($mergedStream['address']))
+                                        ? getGeoData($mergedStream['address'])
+                                        : ['display' => '', 'country' => '', 'flag' => ''];
+                                    $mergedStream['locationShort']   = $loc ?: '';
+                                    $mergedStream['locationGeo']     = $geoData['display'];
+                                    $mergedStream['locationCountry'] = $geoData['country'];
+                                    $mergedStream['locationFlag']    = $geoData['flag'];
+                                    $mergedStream['locationDisplay'] = $loc . ' (' . $mergedStream['address']
+                                        . ($geoData['display'] !== '' ? ' - ' . $geoData['display'] : '')
+                                        . ')';
+                                    $startTs = sessionStartTime($streams['@host'], $mergedStream['sessionKey'] ?? '');
+                                    $mergedStream['sessionStartedAt']   = $startTs;
+                                    $mergedStream['sessionDurationSec'] = $startTs ? (time() - $startTs) : null;
 
                                     if ($mergedStream['state'] === 'paused') {
                                         $mergedStream['stateIcon'] = 'pause';

@@ -14,6 +14,8 @@ https://raw.githubusercontent.com/loukaniko85/unraid-plexstreams/master/plexstre
 
 Then open **Settings → Plex Streams**, click **Get Plex Token**, sign in, and pick your server(s).
 
+The plugin appears as **Plex Streams** in the Plugins list and adds a dashboard widget, a sidebar entry, and a settings page.
+
 ### What you see
 
 Each stream shows the title and poster, the user, where they're streaming from (LAN — or WAN with country flag and city), how long they've been watching, current position, and a colored chip telling you what Plex is doing:

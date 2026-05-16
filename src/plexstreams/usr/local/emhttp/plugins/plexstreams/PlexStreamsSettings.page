@@ -1,15 +1,6 @@
 Menu="PlexStreams"
-Title="Plex Stream Settings"
+Title="Plex Streams Settings"
 Tag="film"
----
-<?php
-    $plugin = "plexstreams";
-    $translations = file_exists("$docroot/webGui/include/Translations.php");
-    require_once "$docroot/plugins/$plugin/includes/Legacy.php";
-?>
-<?if (!$translations):?>
-<?eval('?>'.parse_file("$docroot/plugins/$plugin/Legacy/Settings.page"))?>
-<?else:?>
 ---
 <link type="text/css" rel="stylesheet" href="/plugins/plexstreams/spinner.css">
 <?php
@@ -52,19 +43,8 @@ if (!isset($cfg['ALLOW_TERMINATE'])) {
     $cfg['ALLOW_TERMINATE'] = "0";
 }
 
-$pluginPath = '/usr/local/emhttp/plugins/plexstreams/';
-
-if ($cfg['DISPLAY_NAV'] === '0' && file_exists($pluginPath . 'Plex_Streams.page')) {
-    rename($pluginPath .'Plex_Streams.page', $pluginPath .'Plex_Streams.page.off');
-} else if ($cfg['DISPLAY_NAV'] === '1' && file_exists($pluginPath . 'Plex_Streams.page.off')) {
-    rename($pluginPath .'Plex_Streams.page.off', $pluginPath .'Plex_Streams.page');
-}
-
-if ($cfg['DISPLAY_WIDGET'] === '0' && file_exists($pluginPath . 'PlexStreams_dashboard.page')) {
-    //rename($pluginPath .'PlexStreams_dashboard.page', $pluginPath .'PlexStreams_dashboard.page.off');
-} else if ($cfg['DISPLAY_WIDGET'] === '1' && file_exists($pluginPath . 'PlexStreams_dashboard.page.off')) {
-    //rename($pluginPath .'PlexStreams_dashboard.page.off', $pluginPath .'PlexStreams_dashboard.page');
-}
+// DISPLAY_NAV and DISPLAY_WIDGET are handled via Cond="" on the page files,
+// so toggling settings takes effect on the next refresh — no file renaming needed.
 ?>
 
 <script>
@@ -130,4 +110,3 @@ function clearToken() {
 <script>
   getServers('#hostcontainer', '<?php echo($cfg['HOST']) ?>');
 </script>
-<?endif;?>

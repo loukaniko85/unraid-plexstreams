@@ -137,39 +137,6 @@
         return $serverList;
     }
 
-    function getServerCheckboxes($cfg) {
-        $servers = getServers($cfg);
-        $retVal = '<div id="HOST">';
-        $selected = explode(',', $cfg['HOST']);
-        foreach($servers as $server) {
-            foreach($server['Connections'] as $connection) {
-                $url = $connection['uri'];
-                $retVal .= '<input onchange="updateServerList(\'HOST\')" name="hostbox" data-id="' . $server['Identifier'] . '" id="' .$url .'" type="checkbox" value="'  .$url .'"' .(in_array($url, $selected) ? ' checked="checked"' : '') . '> <label for="' . $url . '"/>' .$server['Name'] .' (' . $connection['address'] . ':' .$connection['port'] .')' . ($connection['local'] === '0' ? ' - Remote' : '') . '</label></br>';
-            }
-        }
-
-        $retVal .= '</div>';
-        
-
-        return $retVal;
-    }
-
-    function generateServerList($cfg, $name, $id, $selected) {
-        $servers = getServers($cfg);
-        $retVal = '
-                <select name="' .$name . '" id="' .$id .'">
-        ';
-        foreach($servers as $server) {
-            foreach($server['Connections'] as $connection) {
-                $url = $connection['uri'];
-                $retVal .= '<option value="'  .$url .'"' .($selected === $url ? ' selected="selected"' : '') . '>' .$server['Name'] .' (' . $connection['address'] . ':' .$connection['port'] .')' . ($connection['local'] === '0' ? ' - Remote' : '') . '</option>';
-            }
-        }
-        $retVal .= '</select>';
-
-        return $retVal;
-    }
-
     function getStreams($cfg) {        
         $hosts = explode(',', $cfg['HOST']);
         $extraHosts = explode(',', $cfg['CUSTOM_SERVERS']);
@@ -204,83 +171,72 @@
         echo('</pre>');
     }
 
+    // Apply the standard set of cURL options to a handle (used by both
+    // single and multi-curl paths).
+    function _ps_curl_opts($ch) {
+        curl_setopt_array($ch, [
+            CURLOPT_HEADER         => 0,
+            CURLOPT_SSL_VERIFYHOST => 0,
+            CURLOPT_SSL_VERIFYPEER => 0,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_FOLLOWLOCATION => 1,
+            CURLOPT_RETURNTRANSFER => 1,
+            CURLOPT_HTTPHEADER     => [
+                'Accept: application/xml',
+                'Cache-Control: no-cache',
+            ],
+        ]);
+    }
+
+    // Returns the raw decoded payload for a single URL, or — for an array
+    // of URLs — a map of [idx => ['url' => ..., 'content' => ...]] fetched
+    // in parallel via curl_multi.
     function getUrl($urls) {
-        if (is_array($urls)) {
-            $rets = [];
-            $multi = [];
-            $mh = curl_multi_init();
-            foreach($urls as $idx=>$url) {
-                $prefix = '';
-                if (stripos($url, 'sessions') !== false) {
-                    $prefix = 'streams-';
-                } else if (stripos($url, 'schedule') !== false) {
-                    $prefix = 'schedules-';
-                }
-                    
-                $id = $prefix . $idx;
-                $multi[$id] = curl_init();
-                curl_setopt($multi[$id], CURLOPT_URL, $url);
-                curl_setopt($multi[$id], CURLOPT_HEADER, 0);
-                curl_setopt($multi[$id], CURLOPT_SSL_VERIFYHOST, 0);
-                curl_setopt($multi[$id], CURLOPT_SSL_VERIFYPEER, 0);
-                curl_setopt($multi[$id], CURLOPT_SSL_VERIFYSTATUS, 0);
-                curl_setopt($multi[$id], CURLOPT_CONNECTTIMEOUT, 30);
-                curl_setopt($multi[$id], CURLOPT_FOLLOWLOCATION, 1);
-                curl_setopt($multi[$id], CURLOPT_RETURNTRANSFER, 1);
-                curl_multi_add_handle($mh, $multi[$id]);
-            }
-            //execute the handles
-            do {
-                $mrc = curl_multi_exec($mh, $active);
-            }
-            while ($mrc == CURLM_CALL_MULTI_PERFORM);
-
-            while ($active && $mrc == CURLM_OK) {
-                if (curl_multi_select($mh) != -1) {
-                    do {
-                        $mrc = curl_multi_exec($mh, $active);
-                    } while ($mrc == CURLM_CALL_MULTI_PERFORM);
-                }
-            }
-            
-            foreach($multi as $idx=>$m) {
-                if (isset($_REQUEST['dbg'])) {
-                    v_d(curl_multi_getcontent($multi[$idx]));
-                }
-                $urlParts = parse_url(curl_getinfo($multi[$idx],CURLINFO_EFFECTIVE_URL));
-                if ($urlParts !== false && isset($urlParts['scheme'])) {
-                    $url = $urlParts['scheme'] . '://' . $urlParts['host'] .':' . $urlParts['port'] . $urlParts['path'] . '?' . $urlParts['query'];
-                    $rets[$idx]['url'] = $url;
-                    $content = json_decode(json_encode(simplexml_load_string(curl_multi_getcontent($multi[$idx]))), TRUE);
-                    $rets[$idx]['content'] = $content;
-
-                    curl_multi_remove_handle($mh, $m);
-                }
-            }
-            
-            curl_multi_close($mh);
-            return $rets;
-        } else {
-            $arrContextOptions=array(
-                "http" => array(
-                    "method" => "GET",
-                    "header" => 
-                        "Content-Type: application/xml; charset=utf-8;\r\n".
-                        "Connection: close\r\n".
-                        "Cache-Control: no-cache, no-store, must-revalidate, max-age=0\r\n".
-                        "Pragma: no-cache\r\n",
-                    "ignore_errors" => true,
-                    "timeout" => (float)30.0
-                ),
-                "ssl"=>array(
-                    "allow_self_signed"=>true,
-                    "verify_peer"=>false,
-                    "verify_peer_name"=>false,
-                )
-            );
-            $rets = json_decode(json_encode(simplexml_load_string(file_get_contents($urls, false, stream_context_create($arrContextOptions)))), TRUE);
+        if (!is_array($urls)) {
+            $ch = curl_init($urls);
+            _ps_curl_opts($ch);
+            $body = curl_exec($ch);
+            curl_close($ch);
+            if ($body === false) return null;
+            return json_decode(json_encode(simplexml_load_string($body)), true);
         }
 
+        $rets   = [];
+        $multi  = [];
+        $mh     = curl_multi_init();
+        foreach ($urls as $idx => $url) {
+            $prefix = '';
+            if (stripos($url, 'sessions')  !== false) $prefix = 'streams-';
+            elseif (stripos($url, 'schedule') !== false) $prefix = 'schedules-';
+            $id = $prefix . $idx;
+            $multi[$id] = curl_init($url);
+            _ps_curl_opts($multi[$id]);
+            curl_multi_add_handle($mh, $multi[$id]);
+        }
+
+        do {
+            $status = curl_multi_exec($mh, $active);
+            if ($active) curl_multi_select($mh);
+        } while ($active && $status === CURLM_OK);
+
+        foreach ($multi as $idx => $ch) {
+            $effective = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+            $body      = curl_multi_getcontent($ch);
+            $parts     = parse_url($effective);
+            if (!empty($parts['scheme']) && !empty($parts['host'])) {
+                $rebuiltUrl = $parts['scheme'] . '://' . $parts['host']
+                            . (isset($parts['port']) ? ':' . $parts['port'] : '')
+                            . ($parts['path']  ?? '')
+                            . (isset($parts['query']) ? '?' . $parts['query'] : '');
+                $rets[$idx] = [
+                    'url'     => $rebuiltUrl,
+                    'content' => json_decode(json_encode(simplexml_load_string($body)), true),
+                ];
+            }
+            curl_multi_remove_handle($mh, $ch);
+        }
+        curl_multi_close($mh);
         return $rets;
     }
 

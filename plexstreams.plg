@@ -3,7 +3,7 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name       "plexstreams">
   <!ENTITY author     "loukaniko">
-  <!ENTITY version    "2025.07.18">
+  <!ENTITY version    "2026.05.16">
   <!ENTITY launch     "Settings/PlexStreams">
   <!ENTITY branch     "master">
   <!ENTITY gitURL     "https://raw.githubusercontent.com/loukaniko85/unraid-plexstreams/&branch;">
@@ -11,7 +11,7 @@
   <!ENTITY emhttp     "/usr/local/emhttp/plugins/&name;">
   <!ENTITY plgPATH    "/boot/config/plugins/&name;">
   <!ENTITY plgNAME    "&name;-&version;-x86_64-1">
-  <!ENTITY md5        "eebc394004d52c353d6bc82d218356f7">
+  <!ENTITY md5        "REPLACE_WITH_TXZ_MD5">
 ]>
 
 <PLUGIN  name="&name;"
@@ -25,7 +25,28 @@
 
     <CHANGES>
     ##&name;
-###2025.07.18 (loukaniko fork) — final pre-6.12 release
+###2026.05.16
+- Installer now shows as "Plex Streams" in the Plugins page (was "plexstreams")
+- Settings page title is now "Plex Streams Settings"
+- Modernized the full Streams sidebar page to use the same design language
+  as the dashboard widget (decision badges, location chip, session uptime,
+  click-to-expand details, terminate button)
+- Dropped legacy Unraid pre-6.12 code paths (the old Dashboard.page,
+  Settings.page fallbacks, and the Legacy.php translation shim)
+- Removed two helpers that weren't called from anywhere
+  (getServerCheckboxes, generateServerList)
+- SSRF fix in movieDetails.php: host is now validated against your
+  configured Plex servers, same guard as the image proxy and terminate
+  endpoint
+- Folded movieDetails.php's duplicate getUrl/v_d into includes/common.php;
+  movieDetails.php now uses htmlspecialchars on all server-supplied fields
+- Simplified getUrl to a single curl-based code path (drop the
+  file_get_contents fallback); shared cURL options between single and
+  multi-curl calls
+- Page visibility (DISPLAY_NAV, DISPLAY_WIDGET) is now Cond="" driven —
+  removed the .page.off rename dance left over from older Unraid
+
+###2025.07.18 (loukaniko fork)
 - Redesigned the dashboard widget: poster thumbnails, inline progress,
   decision badge (TRANSCODING HW/CPU, DIRECT PLAY, DIRECT STREAM),
   resolution + bandwidth chips, LAN/WAN chip with country flag and city
@@ -306,7 +327,7 @@
 
     <!-- Install Package-->
     <FILE Name="&plgPATH;/&plgNAME;.txz" Run="upgradepkg --install-new --reinstall">
-        <URL>&gitURL;/archive/&plgNAME;.legacy-final.txz</URL>
+        <URL>&gitURL;/archive/&plgNAME;.txz</URL>
         <MD5>&md5;</MD5>
     </FILE>
 
@@ -316,23 +337,12 @@
             # Clear server-list and geo cache after upgrade so changes take effect immediately.
             rm -rf /tmp/plexstreams_cache 2>/dev/null
 
-            WIDGET_OFF_FILE=/usr/local/emhttp/plugins/plexstreams/PlexStreams_dashboard.page.off
-            WIDGET_SETTING=`php -r 'exit(parse_ini_file("/boot/config/plugins/plexstreams/plexstreams.cfg", false)["DISPLAY_WIDGET"]);'`
-            if [[ -f "$WIDGET_OFF_FILE" || "$WIDGET_SETTING" == "0" ]]; then
-                rm -f /usr/local/emhttp/plugins/plexstreams/PlexStreams_dashboard.page.off
-                mv -f /usr/local/emhttp/plugins/plexstreams/PlexStreams_dashboard.page /usr/local/emhttp/plugins/plexstreams/PlexStreams_dashboard.page.off
-            fi
-
-            NAV_OFF=/usr/local/emhttp/plugins/plexstreams/Plex_Streams.page.off
-            NAV_SETTING=`php -r 'exit(parse_ini_file("/boot/config/plugins/plexstreams/plexstreams.cfg", false)["DISPLAY_NAV"]);'`
-            if [[ -f "$NAV_OFF" || "$NAV_SETTING" == "0" ]]; then
-                rm -f /usr/local/emhttp/plugins/plexstreams/Plex_Streams.page.off
-                mv -f /usr/local/emhttp/plugins/plexstreams/Plex_Streams.page /usr/local/emhttp/plugins/plexstreams/Plex_Streams.page.off
-            fi
+            # Page visibility is now controlled by Cond="" on the .page files
+            # themselves, so no .page.off renaming is needed.
 
             echo ""
             echo "-----------------------------------------------------------"
-            echo " &name; has been installed."
+            echo " Plex Streams has been installed."
             echo " Version: &version;"
             echo " Fork: https://github.com/loukaniko85/unraid-plexstreams"
             echo "-----------------------------------------------------------"
@@ -355,7 +365,7 @@
 
             echo ""
             echo "-----------------------------------------------------------"
-            echo " &name; has been uninstalled."
+            echo " Plex Streams has been uninstalled."
             echo " Please reboot your server to complete uninstall this plugin."
             echo " Version: &version;"
             echo "-----------------------------------------------------------"

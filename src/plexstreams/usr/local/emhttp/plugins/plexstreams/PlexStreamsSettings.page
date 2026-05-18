@@ -43,6 +43,14 @@ if (!isset($cfg['ALLOW_TERMINATE'])) {
     $cfg['ALLOW_TERMINATE'] = "0";
 }
 
+if (!isset($cfg['SORT_MODE'])) {
+    $cfg['SORT_MODE'] = "started";
+}
+
+if (!isset($cfg['NOTIFY_NEW_STREAM'])) {
+    $cfg['NOTIFY_NEW_STREAM'] = "0";
+}
+
 // DISPLAY_NAV and DISPLAY_WIDGET are handled via Cond="" on the page files,
 // so toggling settings takes effect on the next refresh — no file renaming needed.
 ?>
@@ -61,7 +69,7 @@ function clearToken() {
 <input type="input" id="plex-token" name="TOKEN" value="<?php echo($cfg['TOKEN']) ?>" readonly="true"  style="height:25px;padding:5px;"/> 
 
 
-<div style="min-height:118px;vertical-align:top;overflow:scroll;position:relative;">
+<div style="min-height:118px;vertical-align:top;overflow:auto;position:relative;">
     _(Servers)_: <div class="lds-dual-ring"></div><br/><div id="hostcontainer"></div>
 </div>
 
@@ -99,6 +107,20 @@ function clearToken() {
     <input type="radio" name="ALLOW_TERMINATE" id="ALLOW_TERMINATE_ON"  value="1" <?php echo( $cfg['ALLOW_TERMINATE'] === "1" ? "checked" : ""); ?>/>_(On)_
     <input type="radio" name="ALLOW_TERMINATE" id="ALLOW_TERMINATE_OFF" value="0" <?php echo( $cfg['ALLOW_TERMINATE'] === "0" ? "checked" : ""); ?>/>_(Off)_
     <br><span style="font-size:11px;color:#888;">_(When ON, a "Terminate" button appears in the stream details popout. Plex will stop the session and show the user a message.)_</span>
+</div>
+<div>
+    _(Sort Streams By)_:
+    <select name="SORT_MODE" id="SORT_MODE">
+        <option value="started"   <?php echo( $cfg['SORT_MODE'] === "started"   ? "selected" : ""); ?>>_(Start time (first → top))_</option>
+        <option value="user"      <?php echo( $cfg['SORT_MODE'] === "user"      ? "selected" : ""); ?>>_(User name)_</option>
+        <option value="bandwidth" <?php echo( $cfg['SORT_MODE'] === "bandwidth" ? "selected" : ""); ?>>_(Bandwidth (heaviest → top))_</option>
+    </select>
+</div>
+<div>
+    _(Notify on New Stream)_:
+    <input type="radio" name="NOTIFY_NEW_STREAM" id="NOTIFY_NEW_STREAM_ON"  value="1" <?php echo( $cfg['NOTIFY_NEW_STREAM'] === "1" ? "checked" : ""); ?>/>_(On)_
+    <input type="radio" name="NOTIFY_NEW_STREAM" id="NOTIFY_NEW_STREAM_OFF" value="0" <?php echo( $cfg['NOTIFY_NEW_STREAM'] === "0" ? "checked" : ""); ?>/>_(Off)_
+    <br><span style="font-size:11px;color:#888;">_(When ON, fires an Unraid notification each time a new Plex session starts — delivered through whichever channels you've configured under Settings → Notification Settings (browser toast, email, agents).)_</span>
 </div>
 <input type="submit" value="SAVE"> <input type="button" value="_(Remove Token)_" onclick="clearToken()"/>
 </form>

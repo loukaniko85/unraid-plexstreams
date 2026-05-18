@@ -34,10 +34,15 @@
         $url = rtrim($host, '/') . '/' . ltrim($img, '/') . '?X-Plex-Token=' . urlencode($cfg['TOKEN']);
     }
 
-    // Browser cache: 304 if client already has it.
-    if (isset($_SERVER['HTTP_IF_MODIFIED_SINCE']) || isset($_SERVER['HTTP_IF_NONE_MATCH'])) {
-        header('HTTP/1.1 304 Not Modified');
-        exit;
+    // Forward validators to upstream so a real 304 only happens when Plex
+    // confirms the asset hasn't changed (the old "304 on any conditional
+    // header" short-circuit cached deleted/changed posters forever).
+    $reqHeaders = [];
+    if (!empty($_SERVER['HTTP_IF_MODIFIED_SINCE'])) {
+        $reqHeaders[] = 'If-Modified-Since: ' . $_SERVER['HTTP_IF_MODIFIED_SINCE'];
+    }
+    if (!empty($_SERVER['HTTP_IF_NONE_MATCH'])) {
+        $reqHeaders[] = 'If-None-Match: ' . $_SERVER['HTTP_IF_NONE_MATCH'];
     }
 
     $ch = curl_init();
@@ -51,13 +56,22 @@
         CURLOPT_BUFFERSIZE     => 12800,
         CURLOPT_SSL_VERIFYPEER => false,
         CURLOPT_SSL_VERIFYHOST => false,
+        CURLOPT_HTTPHEADER     => $reqHeaders,
     ]);
     $out         = curl_exec($ch);
     $headerSize  = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
     $statusCode  = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
-    if ($out === false || $statusCode < 200 || $statusCode >= 400) {
+    if ($out === false) {
+        http_response_code(502);
+        exit;
+    }
+    if ($statusCode === 304) {
+        http_response_code(304);
+        exit;
+    }
+    if ($statusCode < 200 || $statusCode >= 400) {
         http_response_code(502);
         exit;
     }

@@ -5,7 +5,7 @@ Icon="film"
 Code="f008"
 Type="xmenu"
 Tabs="false"
-Cond="parse_ini_file('/boot/config/plugins/plexstreams/plexstreams.cfg')['DISPLAY_NAV'] === '1'"
+Cond="((@parse_ini_file('/boot/config/plugins/plexstreams/plexstreams.cfg') ?: [])['DISPLAY_NAV'] ?? '1') === '1'"
 ---
 <script>
     (function() {

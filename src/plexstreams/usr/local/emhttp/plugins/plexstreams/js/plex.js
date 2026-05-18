@@ -3,6 +3,12 @@ var serverList = [];
 // Track per-stream client-side ticking timers so a paused stream's clock stops moving.
 var psTimers = {};
 
+// Bandwidth history for the header sparkline (60 most recent total-Mbps samples).
+var psBwHistory = [];
+// Main polling timer; set/cleared by psStartPolling/psStopPolling so the
+// visibility hook can pause traffic when the dashboard tab is hidden.
+var psPollTimer = null;
+
 function psFmt(n) {
     n = parseInt(n, 10) || 0;
     return n < 10 ? '0' + n : '' + n;
@@ -81,7 +87,8 @@ function psFmtClock(ts) {
 
 function psBuildStreamNode(stream) {
     var showPoster = (typeof PS_SHOW_POSTERS === 'undefined') || PS_SHOW_POSTERS;
-    var pct = (stream.percentPlayed != null) ? stream.percentPlayed : 0;
+    var pct = parseFloat(stream.percentPlayed);
+    if (!isFinite(pct)) pct = 0;
     var posterHtml = showPoster && stream.thumbUrl
         ? '<div class="ps-thumb" style="background-image:url(\'' + stream.thumbUrl + '\');"></div>'
         : '';
@@ -133,8 +140,9 @@ function psUpdateStreamNode($container, stream) {
         .attr('class', 'ps-state ' + (stream.state || ''))
         .attr('title', uCWord(stream.state || ''))
         .find('i').attr('class', 'fa ' + psStateIconClass(stream));
-    if (stream.percentPlayed != null) {
-        $container.find('.ps-progress').css('width', stream.percentPlayed + '%');
+    var pct = parseFloat(stream.percentPlayed);
+    if (isFinite(pct)) {
+        $container.find('.ps-progress').css('width', pct + '%');
     }
     if (stream.endTime) {
         $container.find('.endTime').text(stream.endTime);
@@ -146,14 +154,30 @@ function psUpdateStreamNode($container, stream) {
     }
 }
 
+function psPlexWebUrl(stream) {
+    if (!stream.machineIdentifier || !stream.ratingKey) return '';
+    return 'https://app.plex.tv/desktop/#!/server/' + encodeURIComponent(stream.machineIdentifier)
+         + '/details?key=' + encodeURIComponent('/library/metadata/' + stream.ratingKey);
+}
+
 function psBuildDetailHtml(stream) {
     function row(label, value) {
         if (value === null || value === undefined || value === '') return '';
         return '<div class="ps-d-row"><span class="ps-d-label">' + label + '</span><span class="ps-d-val">' + value + '</span></div>';
     }
-    var video = (stream.streamInfo && stream.streamInfo.video && stream.streamInfo.video['@attributes']) || null;
-    var audio = (stream.streamInfo && stream.streamInfo.audio && stream.streamInfo.audio['@attributes']) || null;
+    var info  = stream.streamInfo || {};
+    var video = (info.video    && info.video['@attributes'])    || null;
+    var audio = (info.audio    && info.audio['@attributes'])    || null;
+    var sub   = (info.subtitle && info.subtitle['@attributes']) || null;
     var canTerminate = window.PS_ALLOW_TERMINATE && stream.sessionKey;
+    var webUrl = psPlexWebUrl(stream);
+
+    function subLabel(s) {
+        var lang  = s.language || s.languageCode || '';
+        var name  = s.displayTitle || s.title || s.codec || lang || 'Subtitle';
+        var forced = s.forced === '1' ? ' (forced)' : '';
+        return psEscape(name + forced) + (s.decision ? ' &mdash; ' + psEscape(s.decision) : '');
+    }
 
     return '' +
         '<div class="ps-d-grid">' +
@@ -165,13 +189,17 @@ function psBuildDetailHtml(stream) {
             row('Resolution',  psEscape(stream.videoResolution || '')) +
             row('Container',   psEscape(stream.container || '')) +
             row('Decision',    psEscape(uCWord(stream.streamDecision || '')) + (stream.transcodeType ? ' <span class="ps-badge ps-badge-trans">' + stream.transcodeType + '</span>' : '')) +
-            (video ? row('Video', psEscape(video.displayTitle || video.codec || '') + (video.decision ? ' &mdash; ' + video.decision : '')) : '') +
-            (audio ? row('Audio', psEscape(audio.displayTitle || audio.codec || '') + (audio.decision ? ' &mdash; ' + audio.decision : '')) : '') +
+            (video ? row('Video',    psEscape(video.displayTitle || video.codec || '') + (video.decision ? ' &mdash; ' + video.decision : '')) : '') +
+            (audio ? row('Audio',    psEscape(audio.displayTitle || audio.codec || '') + (audio.decision ? ' &mdash; ' + audio.decision : '')) : '') +
+            (sub   ? row('Subtitle', subLabel(sub)) : '') +
         '</div>' +
         '<div class="ps-d-actions">' +
             (canTerminate
                 ? '<button type="button" class="ps-btn ps-btn-kill" onclick="psTerminateStream(\'' + stream.id + '\')"><i class="fa fa-stop"></i> Terminate</button>'
                 : '<span class="ps-d-hint">Enable termination in <a href="/Settings/PlexStreams">settings</a> to add a stop button.</span>') +
+            (webUrl
+                ? ' <a class="ps-btn" target="_blank" rel="noopener" href="' + psEscape(webUrl) + '"><i class="fa fa-external-link"></i> Open in Plex</a>'
+                : '') +
         '</div>';
 }
 
@@ -253,21 +281,77 @@ function psStopTimer(streamId) {
     }
 }
 
+function psSortMode() {
+    var v = window.PS_SORT_MODE || 'started';
+    return ['started','user','bandwidth'].indexOf(v) > -1 ? v : 'started';
+}
+
 function psSortStreams(streams) {
-    // Always chronological by session start (first started → top).
+    var mode = psSortMode();
     return streams.slice().sort(function(a, b) {
+        if (mode === 'user') {
+            return (a.user || '').localeCompare(b.user || '');
+        }
+        if (mode === 'bandwidth') {
+            return (parseFloat(b.bandwidth) || 0) - (parseFloat(a.bandwidth) || 0);
+        }
+        // 'started' — chronological, first to start at top.
         return (a.sessionStartedAt || 0) - (b.sessionStartedAt || 0);
     });
 }
 
+// Inline SVG sparkline of recent total bandwidth. ~60 samples wide × 14 tall.
+function psSparkline(samples) {
+    if (!samples || samples.length < 2) return '';
+    var w = 60, h = 14, pad = 1;
+    var max = 0;
+    for (var i = 0; i < samples.length; i++) if (samples[i] > max) max = samples[i];
+    if (max <= 0) return '';
+    var step = (w - 2 * pad) / (samples.length - 1);
+    var pts = [];
+    for (var j = 0; j < samples.length; j++) {
+        var x = pad + step * j;
+        var y = h - pad - ((h - 2 * pad) * (samples[j] / max));
+        pts.push(x.toFixed(1) + ',' + y.toFixed(1));
+    }
+    return '<svg class="ps-spark" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h
+         + '" preserveAspectRatio="none" aria-hidden="true">'
+         + '<polyline fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round" stroke-linecap="round" points="'
+         + pts.join(' ') + '"/></svg>';
+}
+
+// Stream-start notifications are fired server-side via Unraid's `notify`
+// CLI in includes/common.php (ps_notify_new_stream). That uses whatever
+// delivery channels the user has configured in Settings → Notification
+// Settings — no browser permission to manage from this side.
+
+function psStartPolling() {
+    if (psPollTimer !== null) return;
+    var ms = window.PS_REFRESH_MS || 5000;
+    psPollTimer = setInterval(updateDashboardStreamsNew, ms);
+}
+
+function psStopPolling() {
+    if (psPollTimer !== null) {
+        clearInterval(psPollTimer);
+        psPollTimer = null;
+    }
+}
+
 function updateDashboardStreamsNew() {
-    $.ajax('/plugins/plexstreams/ajax.php').done(function(streams){
+    $.ajax('/plugins/plexstreams/ajax.php').done(function(resp){
+        // ajax.php now returns { streams: [], unreachable: [] }.
+        var streams     = Array.isArray(resp) ? resp : ((resp && resp.streams)     || []);
+        var unreachable = (resp && resp.unreachable) || [];
+
         $('#retrieving_streams').remove();
         var seen = {};
         var hostStreams = {};
         var hostBw = {};
         var totalBw = 0;
-        if (streams && streams.length > 0) {
+        var $countSpan = $('#stream_count_container');
+
+        if (streams.length > 0) {
             $('.no_streams, .ps-empty').remove();
             streams = psSortStreams(streams);
             streams.forEach(function(s) {
@@ -305,7 +389,7 @@ function updateDashboardStreamsNew() {
                     }
                 }
             });
-            // remove stale streams
+            // remove stale streams (drop their dom node, ticker, and cached payload)
             $('#plexstreams_streams .ps-stream').each(function() {
                 if (!seen[this.id]) {
                     psStopTimer(this.id);
@@ -313,39 +397,48 @@ function updateDashboardStreamsNew() {
                     $(this).remove();
                 }
             });
-            // Compact one-liner: "2 streams · 12.1 Mbps"
-            var $countSpan = $('#stream_count_container');
-            var noun = streams.length === 1 ? _('stream') : _('streams');
-            var totalTxt = '<span id="plexstreams_count">' + streams.length + '</span> ' + noun;
-            if (totalBw > 0) totalTxt += ' &middot; <span class="ps-bw-total">' + totalBw.toFixed(1) + ' Mbps</span>';
-            $countSpan.html(totalTxt);
-
-            // Per-server breakdown: only render when there's more than one server,
-            // otherwise it just duplicates the header line.
-            var hostKeys = Object.keys(hostStreams);
-            if (hostKeys.length > 1) {
-                var hostHtml = '';
-                hostKeys.forEach(function(host) {
-                    var bw = hostBw[host] || 0;
-                    hostHtml += '<div><strong>' + host + ':</strong> '
-                        + hostStreams[host]
-                        + (bw > 0 ? ' &middot; ' + bw.toFixed(1) + ' Mbps' : '')
-                        + '</div>';
-                });
-                $('#ps_host_counts').html(hostHtml);
-            } else {
-                $('#ps_host_counts').empty();
-            }
         } else {
-            $('#plexstreams_count').text(0);
-            $('#ps_host_counts').html('');
-            // clear timers & nodes
+            // Clear cached state when nothing is streaming.
             for (var k in psTimers) { if (psTimers.hasOwnProperty(k)) psStopTimer(k); }
             $('#plexstreams_streams .ps-stream').remove();
+            window.psLastStreams = {};
             if ($('#plexstreams_streams .ps-empty').length === 0) {
                 $('#plexstreams_streams').append('<div class="ps-empty no_streams">' + _('There are currently no active streams') + '</div>');
             }
         }
+
+        // Sparkline: keep 60 samples of total bandwidth.
+        psBwHistory.push(totalBw);
+        if (psBwHistory.length > 60) psBwHistory.shift();
+
+        // Header line: "N streams · 12.1 Mbps  ▁▂▅▆"
+        var noun = streams.length === 1 ? _('stream') : _('streams');
+        var headerHtml = '<span id="plexstreams_count">' + streams.length + '</span> ' + noun;
+        if (totalBw > 0) {
+            headerHtml += ' &middot; <span class="ps-bw-total">' + totalBw.toFixed(1) + ' Mbps</span> '
+                       + psSparkline(psBwHistory);
+        }
+        $countSpan.html(headerHtml);
+
+        // Per-server breakdown + unreachable chip.
+        var hostKeys = Object.keys(hostStreams);
+        var hostHtml = '';
+        if (hostKeys.length > 1) {
+            hostKeys.forEach(function(host) {
+                var bw = hostBw[host] || 0;
+                hostHtml += '<div><strong>' + host + ':</strong> '
+                    + hostStreams[host]
+                    + (bw > 0 ? ' &middot; ' + bw.toFixed(1) + ' Mbps' : '')
+                    + '</div>';
+            });
+        }
+        if (unreachable.length > 0) {
+            var names = unreachable.map(function(u) { return psEscape(u.alias || u.host); }).join(', ');
+            hostHtml += '<div class="ps-warn"><i class="fa fa-exclamation-triangle"></i> '
+                     + unreachable.length + ' server' + (unreachable.length === 1 ? '' : 's')
+                     + ' unreachable: ' + names + '</div>';
+        }
+        $('#ps_host_counts').html(hostHtml);
     }).fail(function(jqXHR) {
         if (jqXHR.status == '500') {
             $('#plexstreams_streams').html('<div class="ps-empty">' + _('Please make sure you have') + ' <a href="/Settings/PlexStreams">' + _('setup') + '</a> ' + _('the plugin first') + '</div>');

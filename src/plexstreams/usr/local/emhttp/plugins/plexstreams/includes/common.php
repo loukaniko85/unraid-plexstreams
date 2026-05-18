@@ -2,7 +2,20 @@
     if (isset($GLOBALS['unRaidSettings'])) {
         define('OS_VERSION', 'Unraid ' . $GLOBALS['unRaidSettings']['version']);
     }
-    define('PLUGIN_VERSION', '2026.05.15');
+    // Read the installed plugin version straight from the .plg so the value
+    // can't drift behind releases. Falls back to "unknown" if the .plg isn't
+    // on disk (shouldn't happen at runtime, but keeps OAuth headers sane).
+    if (!defined('PLUGIN_VERSION')) {
+        $_plgFile = '/boot/config/plugins/plexstreams/plexstreams.plg';
+        $_v = '';
+        if (is_file($_plgFile)) {
+            $_raw = @file_get_contents($_plgFile);
+            if ($_raw && preg_match('/ENTITY\s+version\s+"([^"]+)"/', $_raw, $m)) {
+                $_v = $m[1];
+            }
+        }
+        define('PLUGIN_VERSION', $_v ?: 'unknown');
+    }
     define('PLEXSTREAMS_CACHE_DIR', '/tmp/plexstreams_cache');
 
     function ps_cache_get($key, $ttl) {
@@ -63,6 +76,9 @@
 
     // First-seen timestamp for a session. Refreshes the cache mtime each call
     // so an active session never expires, but never overwrites the value.
+    // When the session is brand new (cache miss), the key is recorded in
+    // $GLOBALS['_ps_new_sessions'] so mergeStreams() can fire an Unraid
+    // notification for it.
     function sessionStartTime($host, $sessionKey) {
         if (empty($sessionKey)) return null;
         $key  = 'sess:' . $host . '|' . $sessionKey;
@@ -74,7 +90,78 @@
         }
         $now = time();
         ps_cache_set($key, $now);
+        $GLOBALS['_ps_new_sessions'][$key] = true;
         return $now;
+    }
+
+    function ps_is_new_session($host, $sessionKey) {
+        return !empty($GLOBALS['_ps_new_sessions']['sess:' . $host . '|' . $sessionKey] ?? null);
+    }
+
+    // Fires a notification through Unraid's own notify CLI. That honours
+    // whatever delivery channels the user has configured under
+    // Settings → Notification Settings (browser toast, email, agents).
+    // No-op unless the plugin's NOTIFY_NEW_STREAM toggle is on and the
+    // notify script is present on disk (which it is on every supported
+    // Unraid version, but be defensive).
+    function ps_notify_new_stream($stream, $cfg) {
+        if (($cfg['NOTIFY_NEW_STREAM'] ?? '0') !== '1') return;
+        $script = '/usr/local/emhttp/webGui/scripts/notify';
+        if (!is_executable($script)) return;
+
+        $who    = $stream['user']        ?? 'Someone';
+        $title  = $stream['titleString'] ?? ($stream['title'] ?? 'a Plex stream');
+        $server = !empty($stream['alias']) ? ' on ' . $stream['alias'] : '';
+
+        // -e: category. -s: subject (drives the browser toast and the
+        // bold heading in the archive). -d: short description (rendered
+        // under the subject in the archive — Unraid prints "No
+        // description" if this is omitted, so build a one-liner of
+        // technical context: decision · resolution · bandwidth ·
+        // location · player). -m: longer body for email / agents.
+        $subject = $who . ' started ' . $title . $server;
+
+        $dec = strtolower((string)($stream['streamDecision'] ?? ''));
+        if (strpos($dec, 'transcode') !== false) {
+            $decision = 'Transcoding'
+                      . (!empty($stream['transcodeType']) ? ' (' . $stream['transcodeType'] . ')' : '');
+        } elseif ($dec === 'copy') {
+            $decision = 'Direct Stream';
+        } elseif ($dec !== '') {
+            $decision = 'Direct Play';
+        } else {
+            $decision = '';
+        }
+
+        $location = $stream['locationShort'] ?? '';
+        if ($location && $location !== 'LAN' && !empty($stream['locationGeo'])) {
+            $location .= ' · ' . $stream['locationGeo'];
+        }
+
+        $player = $stream['player'] ?? '';
+        if ($player
+            && !empty($stream['playerDevice'])
+            && $stream['playerDevice'] !== $stream['player']) {
+            $player .= ' on ' . $stream['playerDevice'];
+        }
+
+        $description = implode(' · ', array_filter([
+            $decision,
+            $stream['videoResolution'] ?? '',
+            !empty($stream['bandwidth']) ? $stream['bandwidth'] . ' Mbps' : '',
+            $location,
+            $player,
+        ]));
+        if ($description === '') $description = ' '; // suppress Unraid's "No description"
+
+        $cmd = $script
+             . ' -i normal'
+             . ' -e ' . escapeshellarg('Plex Streams')
+             . ' -s ' . escapeshellarg($subject)
+             . ' -d ' . escapeshellarg($description)
+             . ' -m ' . escapeshellarg($subject . "\n" . $description)
+             . ' add';
+        @shell_exec($cmd . ' >/dev/null 2>&1');
     }
 
     function getServers($cfg) {
@@ -137,33 +224,42 @@
         return $serverList;
     }
 
-    function getStreams($cfg) {        
-        $hosts = explode(',', $cfg['HOST']);
-        $extraHosts = explode(',', $cfg['CUSTOM_SERVERS']);
-        $hosts = array_merge($hosts, $extraHosts);
-
-        $streams = [];
-        $schedules = [];
-        foreach($hosts as $host) {
-            if (isset($cfg['TOKEN']) && !empty($cfg['TOKEN'])) {
-                $streams[] = $host . "/status/sessions?X-Plex-Token=" . $cfg['TOKEN'] .'&_m=' .time();
-                $schedules[] = $host ."/media/subscriptions/scheduled?X-Plex-Token=" .$cfg['TOKEN'];
-                if (isset($_REQUEST['dbg'])) {
-                    v_d($streams);
-                    v_d($schedules);
-                }
-            }
-        }
-        $combined = $streams;
-        array_push($combined , ...$schedules);
-        if (isset($cfg['TOKEN']) && !empty($cfg['TOKEN'])) {
-            $responses = getUrl($combined);
-        } else {
-            $responses = [];
+    function getStreams($cfg) {
+        $hosts = array_filter(array_map('trim', array_merge(
+            explode(',', $cfg['HOST']           ?? ''),
+            explode(',', $cfg['CUSTOM_SERVERS'] ?? '')
+        )));
+        if (empty($cfg['TOKEN']) || empty($hosts)) {
+            return [];
         }
 
-        return $responses;
+        $urls = [];
+        foreach ($hosts as $host) {
+            $urls[] = $host . '/status/sessions?X-Plex-Token=' . $cfg['TOKEN'] . '&_m=' . time();
+        }
+        if (isset($_REQUEST['dbg'])) {
+            v_d($urls);
+        }
+        return getUrl($urls);
     }
+
+    // Per-host machineIdentifier, cached 6h. Used to build "Open in Plex Web"
+    // deep links (app.plex.tv/desktop/#!/server/<id>/details?key=...).
+    function getMachineIdentifier($host, $token) {
+        $cacheKey = 'identity:' . $host;
+        $cached = ps_cache_get($cacheKey, 21600);
+        if (is_string($cached) && $cached !== '') return $cached;
+        $resp = getUrl(rtrim($host, '/') . '/identity?X-Plex-Token=' . urlencode($token));
+        $id   = is_array($resp) ? ($resp['@attributes']['machineIdentifier'] ?? '') : '';
+        if ($id !== '') ps_cache_set($cacheKey, $id);
+        return $id;
+    }
+
+    // Snapshot of host reachability from the most recent getUrl() multi call.
+    // ajax.php reads this to tell the client which configured hosts didn't
+    // respond, so the widget can surface a "1 server unreachable" chip.
+    function ps_set_host_status($status) { $GLOBALS['_ps_host_status'] = $status; }
+    function ps_get_host_status()        { return $GLOBALS['_ps_host_status'] ?? []; }
 
     function v_d($obj) {
         echo('<pre>');
@@ -202,17 +298,14 @@
             return json_decode(json_encode(simplexml_load_string($body)), true);
         }
 
-        $rets   = [];
-        $multi  = [];
-        $mh     = curl_multi_init();
+        $rets    = [];
+        $multi   = [];
+        $statusByHost = [];
+        $mh      = curl_multi_init();
         foreach ($urls as $idx => $url) {
-            $prefix = '';
-            if (stripos($url, 'sessions')  !== false) $prefix = 'streams-';
-            elseif (stripos($url, 'schedule') !== false) $prefix = 'schedules-';
-            $id = $prefix . $idx;
-            $multi[$id] = curl_init($url);
-            _ps_curl_opts($multi[$id]);
-            curl_multi_add_handle($mh, $multi[$id]);
+            $multi['streams-' . $idx] = curl_init($url);
+            _ps_curl_opts($multi['streams-' . $idx]);
+            curl_multi_add_handle($mh, $multi['streams-' . $idx]);
         }
 
         do {
@@ -222,21 +315,28 @@
 
         foreach ($multi as $idx => $ch) {
             $effective = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+            $httpCode  = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
             $body      = curl_multi_getcontent($ch);
             $parts     = parse_url($effective);
             if (!empty($parts['scheme']) && !empty($parts['host'])) {
-                $rebuiltUrl = $parts['scheme'] . '://' . $parts['host']
-                            . (isset($parts['port']) ? ':' . $parts['port'] : '')
+                $hostKey = $parts['scheme'] . '://' . $parts['host']
+                         . (isset($parts['port']) ? ':' . $parts['port'] : '');
+                $rebuiltUrl = $hostKey
                             . ($parts['path']  ?? '')
                             . (isset($parts['query']) ? '?' . $parts['query'] : '');
-                $rets[$idx] = [
-                    'url'     => $rebuiltUrl,
-                    'content' => json_decode(json_encode(simplexml_load_string($body)), true),
-                ];
+                $reachable = ($httpCode >= 200 && $httpCode < 500 && $body !== false && $body !== '');
+                $statusByHost[$hostKey] = $reachable;
+                if ($reachable) {
+                    $rets[$idx] = [
+                        'url'     => $rebuiltUrl,
+                        'content' => json_decode(json_encode(simplexml_load_string($body)), true),
+                    ];
+                }
             }
             curl_multi_remove_handle($mh, $ch);
         }
         curl_multi_close($mh);
+        ps_set_host_status($statusByHost);
         return $rets;
     }
 
@@ -245,18 +345,14 @@
 
         $mergedStreams = [];
         $videoStreams = [];
-        $schedules = [];
         foreach($allStreams as $idx=>$details) {
             $urlParts = parse_url($details['url']);
             if ($urlParts !== false) {
                 $source = (is_array($details['content'])) ? $details['content'] : [];
-                $source['@host'] = $urlParts['scheme'] . '://' . $urlParts['host'] . ':' . $urlParts['port'];
+                $source['@host'] = $urlParts['scheme'] . '://' . $urlParts['host']
+                                 . (isset($urlParts['port']) ? ':' . $urlParts['port'] : '');
                 $source['shortHost'] = $urlParts['host'];
-                if (stripos($idx, 'streams-') !== false) {
-                    $videoStreams[] = $source;
-                } else if (stripos($idx, 'schedules-') !== false) {
-                    $schedules[] = $source;
-                }
+                $videoStreams[] = $source;
             }
         }
 
@@ -272,6 +368,12 @@
                     }
                     foreach($video['Media'] as $media) {
                         if (isset($media['@attributes']['selected']) && $media['@attributes']['selected'] === '1') {
+                            // Normalise Part to a list (multi-file titles return >1).
+                            if (isset($media['Part']['@attributes'])) {
+                                $media['Part'] = [$media['Part']];
+                            }
+                            $part = is_array($media['Part'] ?? null) ? reset($media['Part']) : null;
+
                             if (!isset($media['@attributes']['origin'])) {
                                 $title = $video['@attributes']['title'] . (isset($video['@attributes']['year']) ? ' (' . $video['@attributes']['year'] . ')' : '' );
                                 if (isset($video['@attributes']['parentTitle'])) {
@@ -283,8 +385,8 @@
                             } else  {
                                 $title = $video['@attributes']['title'];
                             }
-                            if (isset($media['Part']['@attributes']['duration'])) {
-                                $duration = $media['Part']['@attributes']['duration'];
+                            if (isset($part['@attributes']['duration'])) {
+                                $duration = $part['@attributes']['duration'];
                                 $lengthInSeconds = $duration / 1000;
                                 $lengthInMinutes = ceil($lengthInSeconds / 60 );
                                 $lengthSeconds = floor(intval($lengthInSeconds)%60);
@@ -368,6 +470,8 @@
                             if (isset($alias)) {
                                 $mergedStream['alias'] = $alias;
                             }
+                            $mergedStream['machineIdentifier'] = getMachineIdentifier($streams['@host'], $cfg['TOKEN'] ?? '');
+                            $mergedStream['ratingKey']         = $video['@attributes']['ratingKey'] ?? '';
                             $loc = strtoupper($mergedStream['location'] ?? '');
                             $geoData = ($loc !== 'LAN' && !empty($mergedStream['address']))
                                 ? getGeoData($mergedStream['address'])
@@ -384,7 +488,9 @@
                             $mergedStream['sessionDurationSec'] = $startTs ? (time() - $startTs) : null;
                             
                             if ($mergedStream['duration'] !== null) {
-                                $mergedStream['percentPlayed'] = round(($currentPositionInMinutes/ $lengthInMinutes) * 100, 0);
+                                $mergedStream['percentPlayed'] = ($lengthInMinutes > 0)
+                                    ? round(($currentPositionInMinutes / $lengthInMinutes) * 100, 0)
+                                    : 0;
                                 $mergedStream['currentPositionDisplay'] = str_pad($currentPositionHours, 2, '0', STR_PAD_LEFT) . ':' . str_pad($currentPositionMinutes, 2, '0', STR_PAD_LEFT) . ':' . str_pad($currentPositionSeconds, 2, '0', STR_PAD_LEFT);
                                 $mergedStream['lengthDisplay'] = str_pad($lengthHours, 2, '0', STR_PAD_LEFT) . ':' . str_pad($lengthMinutes, 2, '0', STR_PAD_LEFT) . ':' . str_pad($lengthSeconds, 2, '0', STR_PAD_LEFT);
                             } else {
@@ -397,17 +503,33 @@
                                 $mergedStream['stateIcon'] = 'buffer';
                             }
 
-                            foreach ($media['Part']['Stream'] as $stream) {
-                                if ($stream['@attributes']['streamType'] === '2') {
+                            // Normalise Part.Stream to a list (single stream → map).
+                            $partStreams = $part['Stream'] ?? [];
+                            if (isset($partStreams['@attributes'])) {
+                                $partStreams = [$partStreams];
+                            }
+                            // Pick selected subtitle if multiple are present.
+                            $subPicked = null;
+                            foreach ($partStreams as $stream) {
+                                $type = $stream['@attributes']['streamType'] ?? '';
+                                if ($type === '2') {
                                     $mergedStream['streamInfo']['audio'] = $stream;
                                     $mergedStream['streamInfo']['audio']['@attributes']['decision'] = $mergedStream['streamInfo']['audio']['@attributes']['decision'] ?? 'direct play';
-                                } else if ($stream['@attributes']['streamType'] === '1') {
+                                } else if ($type === '1') {
                                     $mergedStream['streamInfo']['video'] = $stream;
                                     $mergedStream['streamInfo']['video']['@attributes']['decision'] = $mergedStream['streamInfo']['video']['@attributes']['decision'] ?? 'direct play';
+                                } else if ($type === '3') {
+                                    if (($stream['@attributes']['selected'] ?? '0') === '1' || $subPicked === null) {
+                                        $subPicked = $stream;
+                                    }
                                 }
                             }
-                            
-                            $mergedStream['streamDecision'] = $media['Part']['@attributes']['decision'] ?? '';
+                            if ($subPicked !== null) {
+                                $mergedStream['streamInfo']['subtitle'] = $subPicked;
+                                $mergedStream['streamInfo']['subtitle']['@attributes']['decision'] = $subPicked['@attributes']['decision'] ?? 'direct play';
+                            }
+
+                            $mergedStream['streamDecision'] = $part['@attributes']['decision'] ?? '';
                             if ($mergedStream['streamDecision'] === 'directplay') {
                                 $mergedStream['streamDecision'] = 'Direct Play';
                             }
@@ -433,8 +555,19 @@
                                         $mergedStream['streamInfo']['audio']['@attributes']['decision'] .= ' (' . $ts['sourceAudioCodec'] . ' -> ' . $ts['audioCodec'] . ')';
                                     }
                                 }
+                                // Subtitle decision: Plex reports 'burn' for image-based subs
+                                // burned into the video, or 'copy'/'transcode' for soft tracks.
+                                if (isset($mergedStream['streamInfo']['subtitle']['@attributes']['decision'])) {
+                                    $sd = $mergedStream['streamInfo']['subtitle']['@attributes']['decision'];
+                                    if ($sd === 'burn') {
+                                        $mergedStream['streamInfo']['subtitle']['@attributes']['decision'] = 'burn (forces video transcode)';
+                                    }
+                                }
                             }
 
+                            if (ps_is_new_session($streams['@host'], $mergedStream['sessionKey'] ?? '')) {
+                                ps_notify_new_stream($mergedStream, $cfg);
+                            }
                             $mergedStreams[] = $mergedStream;
                         }
                     }
@@ -514,19 +647,20 @@
                                         'currentPositionHours' => $currentPositionHours,
                                         'currentPositionMinutes' => $currentPositionMinutes,
                                         'currentPositionSeconds' => $currentPositionSeconds,
-                                        'percentPlayed' => $lengthInMinutes > 0 ? round(($currentPositionInMinutes/ $lengthInMinutes) * 100, 0) : '',
+                                        'percentPlayed' => $lengthInMinutes > 0 ? round(($currentPositionInMinutes/ $lengthInMinutes) * 100, 0) : 0,
                                         'currentPositionDisplay' => str_pad($currentPositionHours, 2, '0', STR_PAD_LEFT) . ':' . str_pad($currentPositionMinutes, 2, '0', STR_PAD_LEFT) . ':' . str_pad($currentPositionSeconds, 2, '0', STR_PAD_LEFT),
                                         'lengthDisplay' => str_pad($lengthHours, 2, '0', STR_PAD_LEFT) . ':' . str_pad($lengthMinutes, 2, '0', STR_PAD_LEFT) . ':' . str_pad($lengthSeconds, 2, '0', STR_PAD_LEFT),
-                                        'location' => $audio['Session']['@attributes']['location'],
-                                        'address' => $audio['Player']['@attributes']['address'],
-                                        'bandwidth' => round((int)$audio['Session']['@attributes']['bandwidth'] / 1000, 1),
+                                        'location' => $audio['Session']['@attributes']['location'] ?? null,
+                                        'address' => $audio['Player']['@attributes']['address'] ?? '',
+                                        'bandwidth' => round((int)($audio['Session']['@attributes']['bandwidth'] ?? 0) / 1000, 1),
                                         'endTime' => $endTime,
+                                        'machineIdentifier' => getMachineIdentifier($streams['@host'], $cfg['TOKEN'] ?? ''),
+                                        'ratingKey' => $audio['@attributes']['ratingKey'] ?? '',
                                         'streamInfo' => []
                                     ];
-                                    if ($mergedStream['location'] === null) {
-                                        if ($audio['Player']['@attributes']['local'] == "1") {
-                                            $mergedStream['location'] = 'LAN';
-                                        }
+                                    if ($mergedStream['location'] === null
+                                        && (($audio['Player']['@attributes']['local'] ?? '0') === '1')) {
+                                        $mergedStream['location'] = 'LAN';
                                     }
 
                                     $loc = strtoupper($mergedStream['location'] ?? '');
@@ -561,6 +695,9 @@
                                     $mergedStream['streamInfo']['audio'] = $stream;
                                     $mergedStream['streamInfo']['audio']['@attributes']['decision'] = $mergedStream['streamInfo']['audio']['@attributes']['decision'] ?? 'direct play';
 
+                                    if (ps_is_new_session($streams['@host'], $mergedStream['sessionKey'] ?? '')) {
+                                        ps_notify_new_stream($mergedStream, $cfg);
+                                    }
                                     $mergedStreams[] = $mergedStream;
                                 }
                             }
@@ -569,13 +706,6 @@
                 }
             }
         }
-
-        // if (isset($scheduled) && isset($scheduled['@attributes'])) {
-        //     $streams['Scheduled'] = [$streams['Scheduled']];
-        //     foreach($streams['Scheduled'] as $scheduled) {
-
-        //     }
-        // }
 
         return $mergedStreams;
     }

@@ -10,6 +10,8 @@
     $refresh   = max(2, (int)($psCfg['REFRESH_INTERVAL'] ?? 5));
     $posters   = ($psCfg['SHOW_POSTERS']     ?? '1') === '1' ? 1 : 0;
     $allowKill = ($psCfg['ALLOW_TERMINATE']  ?? '0') === '1' ? 1 : 0;
+    $sortMode  = in_array($psCfg['SORT_MODE'] ?? 'started', ['started','user','bandwidth'], true)
+               ? $psCfg['SORT_MODE'] : 'started';
 ?>
 <style>
     /* Full streams page reuses the widget styles loaded by the widget page,
@@ -167,6 +169,13 @@
         color: #e53935;
         border-radius: 4px;
     }
+    .ps-spark { vertical-align: middle; opacity: 0.75; color: #4caf50; margin-left: 4px; }
+    .ps-warn {
+        margin-top: 4px;
+        color: #c79320;
+        font-size: 11px;
+    }
+    .ps-warn i { margin-right: 4px; }
 </style>
 
 <?php if (empty($cfg['TOKEN'])): ?>
@@ -190,13 +199,22 @@
     window.PS_REFRESH_MS      = <?= $refresh * 1000 ?>;
     window.PS_SHOW_POSTERS    = <?= $posters ?>;
     window.PS_ALLOW_TERMINATE = <?= $allowKill ?>;
+    window.PS_SORT_MODE       = '<?= $sortMode ?>';
     $(function() {
         // The page title shown in the browser tab.
         var t = $('title').html();
         if (t) $('title').html(t.split('/')[0] + '/Plex Streams');
         <?php if (!empty($cfg['TOKEN'])): ?>
         updateDashboardStreamsNew();
-        setInterval(updateDashboardStreamsNew, window.PS_REFRESH_MS);
+        psStartPolling();
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                psStopPolling();
+            } else {
+                updateDashboardStreamsNew();
+                psStartPolling();
+            }
+        });
         <?php endif; ?>
     });
 </script>

@@ -3,7 +3,7 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name       "plexstreams">
   <!ENTITY author     "loukaniko">
-  <!ENTITY version    "2026.05.16">
+  <!ENTITY version    "2026.05.18">
   <!ENTITY launch     "Settings/PlexStreams">
   <!ENTITY branch     "master">
   <!ENTITY gitURL     "https://raw.githubusercontent.com/loukaniko85/unraid-plexstreams/&branch;">
@@ -11,7 +11,7 @@
   <!ENTITY emhttp     "/usr/local/emhttp/plugins/&name;">
   <!ENTITY plgPATH    "/boot/config/plugins/&name;">
   <!ENTITY plgNAME    "&name;-&version;-x86_64-1">
-  <!ENTITY md5        "3f0c122a1283609b0bef6183c14d41b7">
+  <!ENTITY md5        "REPLACE_WITH_TXZ_MD5">
 ]>
 
 <PLUGIN  name="&name;"
@@ -25,6 +25,38 @@
 
     <CHANGES>
     ##&name;
+###2026.05.18
+- Detail panel now shows the subtitle stream (track name, language, and
+  whether Plex is burning it into the video — which forces a video transcode)
+- New "Open in Plex" button in the detail panel deep-links to the title on
+  app.plex.tv, so you can jump from a session to the library entry
+- Header now carries a small bandwidth sparkline alongside the total Mbps
+- New **Sort Streams By** setting (start time / user / bandwidth) on the
+  Plex Streams Settings page — applies to the dashboard widget and the
+  Streams sidebar page
+- New **Notify on New Stream** setting that fires an Unraid notification
+  whenever a new Plex session starts — delivered through whichever
+  channels you've configured under Settings → Notification Settings
+  (browser toast, email, agents). Off by default.
+- Unreachable Plex servers now surface in the widget header instead of
+  silently dropping out, e.g. "1 server unreachable: Living Room"
+- Polling pauses while the dashboard tab is hidden and fires immediately
+  when you come back, so the widget stops hitting Plex for nothing
+- Fix: image proxy was serving stale 304s — a poster you replaced in Plex
+  would stay cached in the browser forever. Validators are now forwarded to
+  Plex and 304 only when Plex confirms the asset is unchanged
+- Fix: multi-file movies (split parts) rendered with no progress / decision
+  chips because the Part list wasn't normalised on the video path
+- Fix: divide-by-zero PHP warning on live / zero-duration video sessions
+- Fix: widget could crash on Cond evaluation when the cfg file was missing
+  (fresh install, before first save)
+- Fix: Plex servers reached on default ports (no explicit :port in the URL)
+  produced a malformed @host string in the detail panel
+- Fix: empty progress bar width on audio tracks with no duration
+- Settings: server list no longer shows permanent scrollbars
+- PLUGIN_VERSION is now read straight from the .plg so the OAuth header
+  always matches the installed release
+
 ###2026.05.16
 - Installer now shows as "Plex Streams" in the Plugins page (was "plexstreams")
 - Settings page title is now "Plex Streams Settings"
@@ -320,6 +352,8 @@
       REFRESH_INTERVAL="5"
       SHOW_POSTERS="1"
       ALLOW_TERMINATE="0"
+      SORT_MODE="started"
+      NOTIFY_NEW_STREAM="0"
       ]]>
       </INLINE>
     </FILE>

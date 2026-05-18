@@ -1,7 +1,7 @@
 Menu="Dashboard:0"
 Icon="film"
 Tag="film"
-Cond="parse_ini_file('/boot/config/plugins/plexstreams/plexstreams.cfg')['DISPLAY_WIDGET'] == '1'"
+Cond="((@parse_ini_file('/boot/config/plugins/plexstreams/plexstreams.cfg') ?: [])['DISPLAY_WIDGET'] ?? '1') === '1'"
 ---
 <?php
     $plugin    = "plexstreams";
@@ -10,6 +10,8 @@ Cond="parse_ini_file('/boot/config/plugins/plexstreams/plexstreams.cfg')['DISPLA
     $refresh   = max(2, (int)($psCfg['REFRESH_INTERVAL'] ?? 5));
     $posters   = ($psCfg['SHOW_POSTERS']     ?? '1') === '1' ? 1 : 0;
     $allowKill = ($psCfg['ALLOW_TERMINATE'] ?? '0') === '1' ? 1 : 0;
+    $sortMode  = in_array($psCfg['SORT_MODE'] ?? 'started', ['started','user','bandwidth'], true)
+               ? $psCfg['SORT_MODE'] : 'started';
 ?>
 
 <style type="text/css">
@@ -235,6 +237,13 @@ Cond="parse_ini_file('/boot/config/plugins/plexstreams/plexstreams.cfg')['DISPLA
         color: #888;
         padding: 12px 0;
     }
+    .ps-spark { vertical-align: middle; opacity: 0.75; color: #4caf50; margin-left: 4px; }
+    .ps-warn {
+        margin-top: 4px;
+        color: #c79320;
+        font-size: 11px;
+    }
+    .ps-warn i { margin-right: 4px; }
 </style>
 <?php
 $mytiles[$plugin]['column1'] =
@@ -265,11 +274,23 @@ EOT;
 ?>
 <script src="<?autov('/plugins/plexstreams/js/plex.js')?>"></script>
 <script async>
-    window.PS_REFRESH_MS    = <?= $refresh * 1000 ?>;
-    window.PS_SHOW_POSTERS  = <?= $posters ?>;
+    window.PS_REFRESH_MS      = <?= $refresh * 1000 ?>;
+    window.PS_SHOW_POSTERS    = <?= $posters ?>;
     window.PS_ALLOW_TERMINATE = <?= $allowKill ?>;
+    window.PS_SORT_MODE       = '<?= $sortMode ?>';
     $(function() {
         updateDashboardStreamsNew();
-        setInterval(updateDashboardStreamsNew, window.PS_REFRESH_MS);
+        psStartPolling();
+        // Pause polling while the dashboard tab is hidden; resume + fetch
+        // immediately when it comes back. Saves hits on Plex when nobody's
+        // looking and gives a fresh view on focus.
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                psStopPolling();
+            } else {
+                updateDashboardStreamsNew();
+                psStartPolling();
+            }
+        });
     });
 </script>

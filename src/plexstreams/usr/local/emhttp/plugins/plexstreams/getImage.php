@@ -16,7 +16,7 @@
     ));
     $allowedHosts = array_map('trim', $allowedHosts);
 
-    $absoluteImg = str_starts_with($img, 'http://') || str_starts_with($img, 'https://');
+    $absoluteImg = (strpos($img, 'http://') === 0) || (strpos($img, 'https://') === 0);
 
     if ($absoluteImg) {
         // Absolute URL (Plex art served by plex.tv); only allow plex.tv subdomains.

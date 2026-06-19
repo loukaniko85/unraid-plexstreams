@@ -221,13 +221,13 @@ function psToggleDetail(streamId) {
 function psTerminateStream(streamId) {
     var s = window.psLastStreams[streamId];
     if (!s) return;
-    if (!s.sessionKey) { psFlash(streamId, 'No session key', 'err'); return; }
+    if (!s.sessionId) { psFlash(streamId, 'No session ID', 'err'); return; }
     if (!confirm('Terminate this stream?\n\n' + (s.titleString || s.title || '') + '\nUser: ' + (s.user || ''))) return;
 
     $.ajax({
         url: '/plugins/plexstreams/terminateStream.php',
         type: 'POST',
-        data: { host: s['@host'], sessionKey: s.sessionKey, reason: 'Terminated by Unraid admin' },
+        data: { host: s['@host'], sessionId: s.sessionId, reason: 'Terminated by Unraid admin' },
         dataType: 'json'
     }).done(function(resp) {
         if (resp && resp.ok) {

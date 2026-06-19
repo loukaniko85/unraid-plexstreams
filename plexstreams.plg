@@ -3,7 +3,7 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name       "plexstreams">
   <!ENTITY author     "loukaniko">
-  <!ENTITY version    "2026.05.18">
+  <!ENTITY version    "2026.06.19">
   <!ENTITY launch     "Settings/PlexStreams">
   <!ENTITY branch     "master">
   <!ENTITY gitURL     "https://raw.githubusercontent.com/loukaniko85/unraid-plexstreams/&branch;">
@@ -11,7 +11,7 @@
   <!ENTITY emhttp     "/usr/local/emhttp/plugins/&name;">
   <!ENTITY plgPATH    "/boot/config/plugins/&name;">
   <!ENTITY plgNAME    "&name;-&version;-x86_64-1">
-  <!ENTITY md5        "c0ac8bbca986824dd92a628ae48907ea">
+  <!ENTITY md5        "5eee980748ee45d4943296ce642ab0fb">
 ]>
 
 <PLUGIN  name="&name;"
@@ -25,6 +25,13 @@
 
     <CHANGES>
     ##&name;
+###2026.06.19
+- Fix stream termination: was sending the numeric sessionKey where Plex
+  expects the session UUID (Session.id); now passes the correct sessionId
+  to /status/sessions/terminate
+- Replace PHP 8 str_starts_with with strpos for broader Unraid compatibility
+- Escape OS_VERSION/PLUGIN_VERSION and theme values written into JavaScript
+
 ###2026.05.18
 - Detail panel now shows the subtitle stream (track name, language, and
   whether Plex is burning it into the video — which forces a video transcode)

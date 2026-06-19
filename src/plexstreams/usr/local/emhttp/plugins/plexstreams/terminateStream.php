@@ -16,18 +16,13 @@
         exit;
     }
 
-    $host       = trim((string)($_POST['host']       ?? ''));
-    $sessionKey = trim((string)($_POST['sessionKey'] ?? ''));
-    $reason     = trim((string)($_POST['reason']     ?? 'Terminated by Unraid admin'));
+    $host      = trim((string)($_POST['host']      ?? ''));
+    $sessionId = trim((string)($_POST['sessionId'] ?? ''));
+    $reason    = trim((string)($_POST['reason']    ?? 'Terminated by Unraid admin'));
 
-    if ($host === '' || $sessionKey === '' || empty($cfg['TOKEN'])) {
+    if ($host === '' || $sessionId === '' || empty($cfg['TOKEN'])) {
         http_response_code(400);
-        echo json_encode(['ok' => false, 'error' => 'Missing host, sessionKey, or token.']);
-        exit;
-    }
-    if (!preg_match('/^\d+$/', $sessionKey)) {
-        http_response_code(400);
-        echo json_encode(['ok' => false, 'error' => 'sessionKey must be numeric.']);
+        echo json_encode(['ok' => false, 'error' => 'Missing host, sessionId, or token.']);
         exit;
     }
 
@@ -42,14 +37,17 @@
         exit;
     }
 
+    // Plex expects the session UUID (Session.id), not the numeric sessionKey.
+    // Tautulli and other tools use GET on this endpoint — it's the proven approach.
     $url = rtrim($host, '/') . '/status/sessions/terminate'
-         . '?sessionId='     . urlencode($sessionKey)
+         . '?sessionId='     . urlencode($sessionId)
          . '&reason='        . urlencode($reason)
          . '&X-Plex-Token='  . urlencode($cfg['TOKEN']);
 
     $ch = curl_init();
     curl_setopt_array($ch, [
         CURLOPT_URL            => $url,
+        CURLOPT_CUSTOMREQUEST  => 'GET',
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_CONNECTTIMEOUT => 5,
         CURLOPT_TIMEOUT        => 15,

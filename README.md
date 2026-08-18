@@ -29,7 +29,7 @@ Each stream shows the title and poster, the user, where they're streaming from (
 
 Plus resolution (4K / 1080p / SD) and bandwidth (e.g. `11 Mbps`).
 
-Click a row to expand the full session details — player, device, codec, container, subtitle track, full geoip — plus an **Open in Plex** button that deep-links to the title on `app.plex.tv`. If you turn on **Allow Stream Termination**, a red Terminate button appears that kills the session.
+Click a row to expand the full session details — player, device, codec, container, subtitle track, full geoip, and (while transcoding) the current speed and buffer progress, e.g. `HW · 2.4x speed · 12% buffered` — plus an **Open in Plex** button that deep-links to the title on `app.plex.tv`. If you turn on **Allow Stream Termination**, a red Terminate button appears that kills the session.
 
 The header line shows total streams and total bandwidth (`2 streams · 12.1 Mbps`), plus a tiny sparkline of recent bandwidth. There's a sort selector (start time / user / bandwidth) and a bell icon for opt-in desktop notifications when a new stream starts — both per-browser. If a configured Plex server stops responding, a `1 server unreachable` chip appears instead of it silently dropping out. With more than one server, a per-server breakdown shows underneath.
 
@@ -46,6 +46,16 @@ Polling pauses while the dashboard tab is hidden and refreshes immediately when 
 ### Release notes
 
 See the **CHANGES** block at the top of [`plexstreams.plg`](plexstreams.plg) (also shown in Unraid's Plugins UI after install) for what's in the current release and what came from upstream.
+
+### Development
+
+The session-parsing layer has a small fixture test suite — plain PHP, no framework:
+
+```
+php tests/run.php
+```
+
+CI runs it (along with `php -l` and `node --check`) before every package build, and the build refuses to run if `src/` changed without a version bump in `plexstreams.plg`. So: bump the version first, then push source changes.
 
 ### Credit
 

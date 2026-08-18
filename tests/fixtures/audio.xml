@@ -1,0 +1,12 @@
+<MediaContainer size="1">
+  <Track ratingKey="501" sessionKey="41" key="/library/metadata/501" title="Song Title" originalTitle="Artist Name" parentTitle="Album Name" thumb="/library/metadata/501/thumb/1" viewOffset="30000" type="track">
+    <Media id="601" selected="1">
+      <Part id="701" duration="213000" decision="directplay">
+        <Stream id="8" streamType="2" codec="flac" selected="1"/>
+      </Part>
+    </Media>
+    <User title="carol"/>
+    <Player product="Plexamp" device="iPhone" state="playing" address="192.168.1.60" local="1"/>
+    <Session id="sess-uuid-carol" bandwidth="1500"/>
+  </Track>
+</MediaContainer>

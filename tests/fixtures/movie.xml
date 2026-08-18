@@ -1,0 +1,15 @@
+<MediaContainer size="1">
+  <Video ratingKey="101" sessionKey="17" key="/library/metadata/101" title="Big Buck Bunny" year="2008" thumb="/library/metadata/101/thumb/1" art="/library/metadata/101/art/1" viewOffset="600000" type="movie">
+    <Media id="201" selected="1" videoResolution="1080" container="mkv">
+      <Part id="301" duration="3723000" decision="transcode">
+        <Stream id="1" streamType="1" codec="h264" displayTitle="1080p (H.264)" decision="transcode" selected="1"/>
+        <Stream id="2" streamType="2" codec="aac" displayTitle="Stereo (AAC)" decision="transcode" selected="1"/>
+        <Stream id="3" streamType="3" codec="pgs" displayTitle="English (PGS)" language="English" decision="burn" selected="1"/>
+      </Part>
+    </Media>
+    <User title="alice" thumb="https://plex.tv/users/abc/avatar"/>
+    <Player product="Plex Web" device="Chrome" platform="Chrome" state="playing" address="203.0.113.10" local="0"/>
+    <Session id="sess-uuid-alice" location="wan" bandwidth="12000"/>
+    <TranscodeSession transcodeHwRequested="1" throttled="0" progress="11.699999809265137" speed="2.4000000953674318" sourceAudioCodec="aac" audioCodec="opus" videoDecision="transcode" audioDecision="transcode"/>
+  </Video>
+</MediaContainer>

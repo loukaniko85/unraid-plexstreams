@@ -39,10 +39,10 @@
 
     // Plex expects the session UUID (Session.id), not the numeric sessionKey.
     // Tautulli and other tools use GET on this endpoint — it's the proven approach.
+    // The token travels as a header so it stays out of URLs (and access logs).
     $url = rtrim($host, '/') . '/status/sessions/terminate'
-         . '?sessionId='     . urlencode($sessionId)
-         . '&reason='        . urlencode($reason)
-         . '&X-Plex-Token='  . urlencode($cfg['TOKEN']);
+         . '?sessionId=' . urlencode($sessionId)
+         . '&reason='    . urlencode($reason);
 
     $ch = curl_init();
     curl_setopt_array($ch, [
@@ -53,7 +53,10 @@
         CURLOPT_TIMEOUT        => 15,
         CURLOPT_SSL_VERIFYPEER => false,
         CURLOPT_SSL_VERIFYHOST => false,
-        CURLOPT_HTTPHEADER     => ['Accept: application/json'],
+        CURLOPT_HTTPHEADER     => [
+            'Accept: application/json',
+            'X-Plex-Token: ' . $cfg['TOKEN'],
+        ],
     ]);
     $body   = curl_exec($ch);
     $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);

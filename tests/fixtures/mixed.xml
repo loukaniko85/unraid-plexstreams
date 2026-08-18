@@ -1,0 +1,24 @@
+<MediaContainer size="2">
+  <Video ratingKey="401" sessionKey="51" key="/library/metadata/401" title="First Movie" year="2020" thumb="/library/metadata/401/thumb/1" art="/library/metadata/401/art/1" viewOffset="60000" type="movie">
+    <Media id="401" selected="1" videoResolution="2160" container="mkv">
+      <Part id="501" duration="3723000" decision="directplay">
+        <Stream id="11" streamType="1" codec="hevc" displayTitle="4K (HEVC)" selected="1"/>
+        <Stream id="12" streamType="2" codec="truehd" displayTitle="7.1 (TrueHD)" selected="1"/>
+      </Part>
+    </Media>
+    <User title="frank"/>
+    <Player product="Plex for Android TV" device="Shield" state="playing" address="192.168.1.50" local="1"/>
+    <Session id="sess-uuid-frank" location="lan" bandwidth="8200"/>
+  </Video>
+  <Video ratingKey="555" sessionKey="52" key="/library/metadata/555" title="Channel 7 Live" type="movie">
+    <Media id="555" selected="1" videoResolution="sd" container="mpegts">
+      <Part id="555p" decision="directplay">
+        <Stream id="21" streamType="1" codec="mpeg2video" selected="1"/>
+        <Stream id="22" streamType="2" codec="mp2" selected="1"/>
+      </Part>
+    </Media>
+    <User title="grace"/>
+    <Player product="Plex Web" device="Firefox" state="playing" address="192.168.1.51" local="1"/>
+    <Session id="sess-uuid-grace" location="lan" bandwidth="4000"/>
+  </Video>
+</MediaContainer>

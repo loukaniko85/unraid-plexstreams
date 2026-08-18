@@ -3,7 +3,7 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name       "plexstreams">
   <!ENTITY author     "loukaniko">
-  <!ENTITY version    "2026.06.19">
+  <!ENTITY version    "2026.08.18">
   <!ENTITY launch     "Settings/PlexStreams">
   <!ENTITY branch     "master">
   <!ENTITY gitURL     "https://raw.githubusercontent.com/loukaniko85/unraid-plexstreams/&branch;">
@@ -25,6 +25,37 @@
 
     <CHANGES>
     ##&name;
+###2026.08.18
+- Fix: two people watching the same title shared one widget row — streams
+  are now keyed by session, not the item's media id
+- Fix: a live (no-duration) stream listed after a normal movie inherited
+  that movie's clock and end time
+- Fix: the image proxy followed redirects without re-checking where they
+  pointed — a 302 could bounce a request past the server allowlist.
+  Redirects are now followed by hand, max 3 hops, each one re-validated
+- Fix: the settings page dropped plex.tv server names/addresses into the
+  page unescaped — a server shared with your account could inject markup
+  into your Unraid admin session
+- Plex token now travels as an X-Plex-Token header instead of a
+  ?X-Plex-Token= query param, so it stops landing in access logs
+- Detail panel shows transcode speed and buffer progress (e.g. "HW · 2.4x
+  speed · 12% buffered") so you can tell at a glance whether a transcode
+  is keeping up
+- Audio titles no longer show stray HTML markup where the line break used to be
+- Settings: token field is a password input now, and saved values are
+  escaped properly
+- When plex.tv can't be reached the settings page says so, instead of
+  leaving an empty server list
+- Widget shows the "set up the plugin" hint (not "no active streams") when
+  nothing is configured yet
+- Upgrades no longer wipe session timestamps — in-progress streams keep
+  their uptime and don't re-fire "new stream" notifications
+- Under the hood: video/audio parsing share one builder (fixes had to be
+  written twice before), the widget and Streams page share one stylesheet,
+  and a small fixture test suite runs in CI before every build
+- CI: php -l / node --check gate, no more parallel build races, and the
+  build refuses to run if source changed without a version bump
+
 ###2026.06.19
 - Fix stream termination: was sending the numeric sessionKey where Plex
   expects the session UUID (Session.id); now passes the correct sessionId
@@ -375,8 +406,13 @@
     <!-- POST-INSTALL SCRIPT -->
     <FILE Run="/bin/bash">
         <INLINE>
-            # Clear server-list and geo cache after upgrade so changes take effect immediately.
-            rm -rf /tmp/plexstreams_cache 2>/dev/null
+            # Clear server-list/geo/identity caches after upgrade so changes
+            # take effect immediately. Session entries (sess-*) are kept, so
+            # in-progress streams keep their uptime and don't re-fire "new
+            # stream" notifications just because the plugin updated.
+            rm -f /tmp/plexstreams_cache/servers-* \
+                  /tmp/plexstreams_cache/geo2-* \
+                  /tmp/plexstreams_cache/identity-* 2>/dev/null
 
             # Page visibility is now controlled by Cond="" on the .page files
             # themselves, so no .page.off renaming is needed.

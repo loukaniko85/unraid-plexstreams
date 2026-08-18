@@ -89,8 +89,12 @@ function psBuildStreamNode(stream) {
     var showPoster = (typeof PS_SHOW_POSTERS === 'undefined') || PS_SHOW_POSTERS;
     var pct = parseFloat(stream.percentPlayed);
     if (!isFinite(pct)) pct = 0;
-    var posterHtml = showPoster && stream.thumbUrl
-        ? '<div class="ps-thumb" style="background-image:url(\'' + stream.thumbUrl + '\');"></div>'
+    // Security: strip chars that break out of CSS url('...'), then escape for the HTML attr.
+    var safeThumbUrl = stream.thumbUrl
+        ? psEscape(String(stream.thumbUrl).replace(/['"()\\]/g, ''))
+        : '';
+    var posterHtml = showPoster && safeThumbUrl
+        ? '<div class="ps-thumb" style="background-image:url(\'' + safeThumbUrl + '\');"></div>'
         : '';
     var hasDuration = stream.currentPositionHours !== null && stream.currentPositionHours !== undefined;
     var timeHtml = hasDuration
@@ -160,6 +164,20 @@ function psPlexWebUrl(stream) {
          + '/details?key=' + encodeURIComponent('/library/metadata/' + stream.ratingKey);
 }
 
+function psTranscodeLine(stream) {
+    if (!stream.transcodeType) return '';
+    var bits = [psEscape(stream.transcodeType)];
+    // Plex reports speed 0 while a transcode is throttled — "0x speed" is noise.
+    if (parseFloat(stream.transcodeSpeed) > 0) {
+        bits.push(psEscape(stream.transcodeSpeed) + 'x speed');
+    }
+    if (stream.transcodeProgress != null && stream.transcodeProgress !== '') {
+        bits.push(psEscape(stream.transcodeProgress) + '% buffered');
+    }
+    if (stream.transcodeThrottled) bits.push('throttled');
+    return bits.join(' &middot; ');
+}
+
 function psBuildDetailHtml(stream) {
     function row(label, value) {
         if (value === null || value === undefined || value === '') return '';
@@ -189,9 +207,10 @@ function psBuildDetailHtml(stream) {
             row('Resolution',  psEscape(stream.videoResolution || '')) +
             row('Container',   psEscape(stream.container || '')) +
             row('Decision',    psEscape(uCWord(stream.streamDecision || '')) + (stream.transcodeType ? ' <span class="ps-badge ps-badge-trans">' + stream.transcodeType + '</span>' : '')) +
-            (video ? row('Video',    psEscape(video.displayTitle || video.codec || '') + (video.decision ? ' &mdash; ' + video.decision : '')) : '') +
-            (audio ? row('Audio',    psEscape(audio.displayTitle || audio.codec || '') + (audio.decision ? ' &mdash; ' + audio.decision : '')) : '') +
+            (video ? row('Video',    psEscape(video.displayTitle || video.codec || '') + (video.decision ? ' &mdash; ' + psEscape(video.decision) : '') + (video.transcodeDetail ? '<br/>' + psEscape(video.transcodeDetail) : '')) : '') +
+            (audio ? row('Audio',    psEscape(audio.displayTitle || audio.codec || '') + (audio.decision ? ' &mdash; ' + psEscape(audio.decision) : '') + (audio.transcodeDetail ? '<br/>' + psEscape(audio.transcodeDetail) : '')) : '') +
             (sub   ? row('Subtitle', subLabel(sub)) : '') +
+            row('Transcode',  psTranscodeLine(stream)) +
         '</div>' +
         '<div class="ps-d-actions">' +
             (canTerminate
@@ -467,27 +486,35 @@ function getServers(containerSelector, selected) {
     selected = selected.split(',');
     $host.html('');
     $.get(url).done(function(data) {
-        serverList = data.serverList;
+        serverList = (data && data.serverList) || {};
+        // Names/URIs/addresses come from plex.tv and are attacker-influenced
+        // for shared servers — escape every value before it touches the DOM.
         if (Object.keys(serverList).length > 0) {
             for (var id in serverList) {
                 if (serverList.hasOwnProperty(id)) {
                     var server = serverList[id];
-                    serverList[id].Connections.forEach(function(connection) {
-                        if (connection !== null) {
-                            var shortHost = connection.uri;
+                    (server.Connections || []).forEach(function(connection) {
+                        if (connection !== null && connection.uri) {
+                            var shortHost = String(connection.uri);
                             shortHost = shortHost.replace(connection.protocol  + '://', '');
                             if (connection.port) {
                                 shortHost = shortHost.replace(':' + connection.port, '');
                             }
-                            $host.append('<input type="hidden" name="ALIAS-' + shortHost + '" value="' + server.Name + '"/>');
-                            $host.append('<input type="checkbox" onchange="updateServerList(\'HOST\')" name="hostbox" id="' + connection.uri + '" data-id="' + id + '"' + (selected.indexOf(connection.uri) > -1 ? ' checked="checked"' : '' ) + ' value="' + connection.uri + '" data-address="' + connection.address + '" data-name="' + server.Name + '"/> <label for="' + connection.uri + '"> ' + server.Name + ' (' +  connection.address + ':' + connection.port + ')' + (connection.local === '0' ? ' - Remote' : '') + '</label><br/>');
+                            var eUri   = psEscape(connection.uri);
+                            var eName  = psEscape(server.Name);
+                            $host.append('<input type="hidden" name="ALIAS-' + psEscape(shortHost) + '" value="' + eName + '"/>');
+                            $host.append('<input type="checkbox" onchange="updateServerList(\'HOST\')" name="hostbox" id="' + eUri + '" data-id="' + psEscape(id) + '"' + (selected.indexOf(connection.uri) > -1 ? ' checked="checked"' : '' ) + ' value="' + eUri + '" data-address="' + psEscape(connection.address) + '" data-name="' + eName + '"/> <label for="' + eUri + '"> ' + eName + ' (' +  psEscape(connection.address) + ':' + psEscape(connection.port) + ')' + (connection.local === '0' ? ' - Remote' : '') + '</label><br/>');
                         }
                     });
                 }
             }
         } else {
-            $host.html('<p>No Servers found, please enter server in Custom Servers Field');
+            $host.html('<p>No Servers found, please enter server in Custom Servers Field</p>');
         }
+        $host.show();
+        $('.lds-dual-ring').hide();
+    }).fail(function() {
+        $host.html('<p>Could not load the server list from plex.tv &mdash; check the token and network, or use Custom Servers below.</p>');
         $host.show();
         $('.lds-dual-ring').hide();
     });

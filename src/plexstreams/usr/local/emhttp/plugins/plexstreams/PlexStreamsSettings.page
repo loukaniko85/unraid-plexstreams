@@ -64,9 +64,9 @@ function clearToken() {
 <form markdown="1" name="plexstreams_settings" id="plexstreams_settings" method="POST" action="/update.php" target="progressFrame">
 <input type="hidden" name="#file" value="plexstreams/plexstreams.cfg" />
 <input type="hidden" id="COMMAND" name="#command" value="" />
-<input type="hidden" id="HOST" name="HOST" value="<?php echo($cfg['HOST']); ?>" />
+<input type="hidden" id="HOST" name="HOST" value="<?php echo htmlspecialchars($cfg['HOST'], ENT_QUOTES, 'UTF-8'); ?>" />
 <input type="button" value="_(Get Plex Token)_" style="margin-right:0px;" onclick="PlexOAuth(function(token){document.getElementById('plex-token').value = token;});"/>
-<input type="input" id="plex-token" name="TOKEN" value="<?php echo($cfg['TOKEN']) ?>" readonly="true"  style="height:25px;padding:5px;"/> 
+<input type="password" id="plex-token" name="TOKEN" value="<?php echo htmlspecialchars($cfg['TOKEN'], ENT_QUOTES, 'UTF-8'); ?>" readonly="true" autocomplete="off" style="height:25px;padding:5px;"/>
 
 
 <div style="min-height:118px;vertical-align:top;overflow:auto;position:relative;">
@@ -75,7 +75,7 @@ function clearToken() {
 
 <div>
     _(Custom Servers)_:
-    <input type="text" name="CUSTOM_SERVERS" id="CUSTOM_SERVERS" placeholder="Example: 192.168.1.2:32400" value="<?php echo( $cfg['CUSTOM_SERVERS'] ); ?>" />
+    <input type="text" name="CUSTOM_SERVERS" id="CUSTOM_SERVERS" placeholder="Example: 192.168.1.2:32400" value="<?php echo htmlspecialchars($cfg['CUSTOM_SERVERS'], ENT_QUOTES, 'UTF-8'); ?>" />
 </div>
        
 <div>
@@ -90,8 +90,8 @@ function clearToken() {
 </div>
 <div>
     _(Use SSL Connection)_:
-    <input type="radio" name="FORCE_PLEX_HTTPS" id="FORCE_PLEX_HTTPS_ON" value="1" onchange="getServers('#hostcontainer','<?php echo($cfg['HOST']) ?>')" <?php echo( $cfg['FORCE_PLEX_HTTPS'] === "1" ? "checked" : ""); ?>/>_(On)_
-    <input type="radio" name="FORCE_PLEX_HTTPS" id="FORCE_PLEX_HTTPS_OFF" value="0" onchange="getServers('#hostcontainer','<?php echo($cfg['HOST']) ?>')" <?php echo( $cfg['FORCE_PLEX_HTTPS'] === "0" ? "checked" : ""); ?>/>_(Off)_
+    <input type="radio" name="FORCE_PLEX_HTTPS" id="FORCE_PLEX_HTTPS_ON" value="1" onchange="getServers('#hostcontainer',<?php echo htmlspecialchars(json_encode($cfg['HOST']), ENT_QUOTES, 'UTF-8'); ?>)" <?php echo( $cfg['FORCE_PLEX_HTTPS'] === "1" ? "checked" : ""); ?>/>_(On)_
+    <input type="radio" name="FORCE_PLEX_HTTPS" id="FORCE_PLEX_HTTPS_OFF" value="0" onchange="getServers('#hostcontainer',<?php echo htmlspecialchars(json_encode($cfg['HOST']), ENT_QUOTES, 'UTF-8'); ?>)" <?php echo( $cfg['FORCE_PLEX_HTTPS'] === "0" ? "checked" : ""); ?>/>_(Off)_
 </div>
 <div>
     _(Show Posters in Widget)_:
@@ -130,5 +130,5 @@ function clearToken() {
 </script>
 <script src="<?autov('/plugins/plexstreams/js/plex.js')?>"></script>
 <script>
-  getServers('#hostcontainer', '<?php echo($cfg['HOST']) ?>');
+  getServers('#hostcontainer', <?php echo json_encode($cfg['HOST']); ?>);
 </script>

@@ -6,11 +6,17 @@ on:
     paths:
       - 'src/plexstreams/**'
       - 'plexstreams.plg'
+      - 'tests/**'
       - '.github/workflows/build-txz.yml'
   workflow_dispatch:
 
 permissions:
   contents: write
+
+# Two quick pushes in a row must not race to build/commit/push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -22,6 +28,42 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Guard — source changes need a version bump
+        if: github.event_name == 'push'
+        run: |
+          set -euo pipefail
+          BEFORE="${{ github.event.before }}"
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            echo "No before-sha on this push; skipping guard."
+            exit 0
+          fi
+          # A force push/rewrite leaves `before` pointing at a commit that no
+          # longer exists in this checkout — nothing to compare, skip.
+          if ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            echo "Before-commit $BEFORE not present in checkout; skipping guard."
+            exit 0
+          fi
+          if git diff --quiet "$BEFORE" "${{ github.sha }}" -- src/plexstreams/; then
+            echo "No source changes in this push; version bump not required."
+            exit 0
+          fi
+          OLD_VER=$(git show "$BEFORE:plexstreams.plg" | grep -oP 'ENTITY\s+version\s+"\K[^"]+')
+          NEW_VER=$(grep -oP 'ENTITY\s+version\s+"\K[^"]+' plexstreams.plg)
+          if [ "$OLD_VER" = "$NEW_VER" ]; then
+            echo "::error::src/plexstreams changed but the version in plexstreams.plg is still $NEW_VER. Bump it (and add a CHANGES header) before pushing — otherwise CI would overwrite the existing release archive."
+            exit 1
+          fi
+          echo "Version bump $OLD_VER -> $NEW_VER — OK"
+
+      - name: Lint PHP and JS
+        run: |
+          set -euo pipefail
+          find src/plexstreams -name '*.php' -print0 | xargs -0 -n1 php -l
+          node --check src/plexstreams/usr/local/emhttp/plugins/plexstreams/js/plex.js
+
+      - name: Run parser tests
+        run: php tests/run.php
 
       - name: Build .txz and patch .plg
         id: build
